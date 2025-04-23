@@ -15,7 +15,7 @@ int:  ## Interactive run; uses default shell entrypoint
 test:  ## Run the unit tests for the agent
 	@pytest base_agent
 
-image:  # Docker image for x86_64
+image:  ## Docker image for x86_64
 	@ANTHROPIC_API_KEY=$${ANTHROPIC_API_KEY:-placeholder_anthropic_api_key} \
 	OPENAI_API_KEY=$${OPENAI_API_KEY:-placeholder_openai_api_key} \
 	FIREWORKS_AI_API_KEY=$${FIREWORKS_AI_API_KEY:-placeholder_fireworks_api_key} \
@@ -34,7 +34,7 @@ image:  # Docker image for x86_64
 		--build-arg VERTEX_PROJECT_ID=$${VERTEX_PROJECT_ID:-placeholder_vertex_project_id} \
 		--load sandbox
 
-image-mac:  # Docker image for apple silicon
+image-mac:  ## Docker image for apple silicon
 	@ANTHROPIC_API_KEY=$${ANTHROPIC_API_KEY:-placeholder_anthropic_api_key} \
 	OPENAI_API_KEY=$${OPENAI_API_KEY:-placeholder_openai_api_key} \
 	FIREWORKS_AI_API_KEY=$${FIREWORKS_AI_API_KEY:-placeholder_fireworks_api_key} \

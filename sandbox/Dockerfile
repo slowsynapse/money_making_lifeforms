@@ -1,5 +1,5 @@
 # Based on Fedora
-FROM fedora:latest
+FROM fedora:42
 
 # Accept TARGET_ARCH build argument
 ARG TARGET_ARCH=x86_64
@@ -28,7 +28,7 @@ RUN dnf -y install dnf-plugins-core && \
     p7zip wget curl sudo file tree which gettext-envsubst patch openssl \
     rsync zip nmap-ncat ripgrep perf poppler-utils lapack-devel blas-devel \
     openssl-devel libffi-devel procps-ng sysstat htop \
-    libtiff-devel golang \
+    libtiff-devel golang awk \
     # System and networking utilities
     hostname net-tools iproute iputils bind-utils tcpdump traceroute mtr \
     psmisc lsof netcat telnet whois tar gzip less findutils
