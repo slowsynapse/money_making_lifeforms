@@ -56,6 +56,11 @@ def setup_argparse() -> argparse.ArgumentParser:
     parser.add_argument(
         "--workers", type=int, default=8, help="Number of parallel problem workers"
     )
+    parser.add_argument(
+        "--evolution-mode",
+        action="store_true",
+        help="Use DSL mutation for improvement (for trading) instead of LLM-based code modification"
+    )
     subparsers = parser.add_subparsers(dest="command", help="Sub-command to perform")
 
     # Just run through a single benchmark for testing
@@ -975,6 +980,144 @@ async def run_meta_agent_benchmark(
         await run_docker_command("docker", "rm", "-f", container_name)
 
 
+async def run_trading_evolution_step(
+    exp_id: int,
+    iteration: int,
+    exp_dir: Path,
+    current_dir: Path,
+    next_dir: Path,
+) -> None:
+    """
+    Evolve trading strategies through DSL mutation instead of LLM-based code improvement.
+    
+    This function:
+    1. Finds the best-performing strategy from previous iterations
+    2. Mutates the DSL to create a new strategy variant
+    3. Copies it to the next iteration's directory
+    
+    This is for the trading benchmark evolutionary loop, where fitness drives strategy
+    selection and mutation drives exploration.
+    """
+    from base_agent.src.benchmarks.trading_benchmarks.trading_benchmark import TradingBenchmark
+    
+    logger.info(f"=== Trading Strategy Evolution: Iteration {iteration} ===")
+    
+    # 1. Analyze all previous iterations to find the best strategy
+    aa = ArchiveAnalyzer(f"results/run_{exp_id}")
+    
+    try:
+        # Get the benchmark results for the trading benchmark
+        trading_benchmark_dir = current_dir / "benchmarks" / "trading"
+        results_file = trading_benchmark_dir / "results.jsonl"
+        
+        if not results_file.exists():
+            logger.warning(f"No trading results found at {results_file}")
+            logger.info("Generating a random initial strategy for iteration 0")
+            
+            # For iteration 0, generate a random strategy
+            next_agent_dir = next_dir / "agent_code"
+            next_agent_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Copy the base agent code
+            base_agent_code = Path("base_agent")
+            import shutil
+            shutil.copytree(base_agent_code, next_agent_dir, dirs_exist_ok=True)
+            
+            # Generate a random initial strategy
+            import random
+            from base_agent.src.dsl.grammar import Indicator, Operator, Action as DslAction
+            
+            # Random initial strategy
+            ind1 = random.choice(list(Indicator))
+            ind2 = random.choice(list(Indicator))
+            param1 = random.choice([5, 10, 14, 20, 30, 50, 100, 200]) if random.random() > 0.2 else 0
+            param2 = random.choice([5, 10, 14, 20, 30, 50, 100, 200]) if random.random() > 0.2 else 0
+            op = random.choice(list(Operator))
+            action1 = random.choice(list(DslAction))
+            action2 = random.choice([a for a in DslAction if a != action1])
+            
+            param1_str = "" if param1 == 0 else str(param1)
+            param2_str = "" if param2 == 0 else str(param2)
+            
+            initial_strategy = f"IF {ind1.name}({param1_str}) {op.value} {ind2.name}({param2_str}) THEN {action1.name} ELSE {action2.name}"
+            logger.info(f"Generated random initial strategy: {initial_strategy}")
+            
+            # Write to the benchmark's "seed" file
+            seed_strategy_file = next_agent_dir / "seed_strategy.txt"
+            seed_strategy_file.write_text(initial_strategy + "\n")
+            
+            return
+        
+        # 2. Find the best strategy across all problems and iterations
+        best_fitness = float('-inf')
+        best_strategy_file = None
+        best_iter = 0
+        
+        # Check all previous iterations
+        for iter_num in range(iteration + 1):
+            iter_dir = exp_dir / f"agent_{iter_num}"
+            benchmark_dir = iter_dir / "benchmarks" / "trading"
+            results_path = benchmark_dir / "results.jsonl"
+            
+            if not results_path.exists():
+                continue
+            
+            # Read all results for this iteration
+            import json
+            with open(results_path, 'r') as f:
+                for line in f:
+                    result = json.loads(line)
+                    fitness = result.get('score', float('-inf'))
+                    
+                    if fitness > best_fitness:
+                        best_fitness = fitness
+                        best_iter = iter_num
+                        problem_id = result.get('problem_id', 'unknown')
+                        
+                        # The answer file is where the strategy is stored
+                        answer_dir = benchmark_dir / problem_id / "answer"
+                        answer_file = answer_dir / "answer.txt"
+                        
+                        if answer_file.exists():
+                            best_strategy_file = answer_file
+        
+        if best_strategy_file is None or best_fitness <= float('-inf'):
+            logger.warning("No viable strategy found in previous iterations")
+            logger.info("Falling back to random strategy generation")
+            # Fall back to random generation (same as iteration 0)
+            # ... (use same random generation code as above)
+            return
+        
+        logger.info(f"Best strategy found in iteration {best_iter} with fitness ${best_fitness:.2f}")
+        logger.info(f"Strategy file: {best_strategy_file}")
+        
+        # 3. Mutate the best strategy
+        benchmark = TradingBenchmark()
+        
+        next_agent_dir = next_dir / "agent_code"
+        next_agent_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Copy the base agent code
+        base_agent_code = Path("base_agent")
+        import shutil
+        shutil.copytree(base_agent_code, next_agent_dir, dirs_exist_ok=True)
+        
+        # Mutate and save
+        mutated_strategy_file = next_agent_dir / "mutated_strategy.txt"
+        success = benchmark.generate_mutated_strategy(best_strategy_file, mutated_strategy_file)
+        
+        if success:
+            logger.info(f"Successfully mutated strategy for iteration {iteration + 1}")
+            logger.info(f"New strategy saved to: {mutated_strategy_file}")
+        else:
+            logger.error(f"Failed to mutate strategy from {best_strategy_file}")
+            
+    except Exception as e:
+        logger.error(f"Error in trading evolution: {e}")
+        import traceback
+        traceback.print_exc()
+
+
 async def main():
     """Main entry point for the agent runner"""
     load_dotenv()
@@ -1033,12 +1176,22 @@ async def main():
             exp_dir, current_agent_dir, list(benchmark_registry.values()), args.workers
         )
 
-        # Improvement task
+        # Improvement task - choose between LLM-based code modification or DSL mutation
         logger.info(f"Starting agent improvement for iteration {i}")
         next_agent_dir.mkdir(exist_ok=False, parents=True)
-        await run_meta_agent_benchmark(
-            exp_id, i, exp_dir, current_agent_dir, next_agent_dir
-        )
+        
+        if args.evolution_mode:
+            # Use DSL mutation for trading strategy evolution
+            logger.info("Using evolution mode (DSL mutation)")
+            await run_trading_evolution_step(
+                exp_id, i, exp_dir, current_agent_dir, next_agent_dir
+            )
+        else:
+            # Use LLM-based code modification (traditional self-improvement)
+            logger.info("Using meta-agent mode (LLM-based code modification)")
+            await run_meta_agent_benchmark(
+                exp_id, i, exp_dir, current_agent_dir, next_agent_dir
+            )
 
         # Update metadata for next iteration
         update_metadata(exp_dir, agent_iteration=i + 1)

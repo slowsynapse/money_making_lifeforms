@@ -36,8 +36,12 @@ class DslMutator:
         rule = program[0]
         cond = rule.condition
         
+        # Format parameters: show empty parens () for param=0, otherwise show the number
+        param1_str = "" if cond.param1 == 0 else str(cond.param1)
+        param2_str = "" if cond.param2 == 0 else str(cond.param2)
+        
         return (
-            f"IF {cond.indicator1.name}({cond.param1}) {cond.operator.value} {cond.indicator2.name}({cond.param2}) "
+            f"IF {cond.indicator1.name}({param1_str}) {cond.operator.value} {cond.indicator2.name}({param2_str}) "
             f"THEN {rule.true_action.name} "
             f"ELSE {rule.false_action.name}"
         )

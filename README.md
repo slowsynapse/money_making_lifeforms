@@ -1,167 +1,280 @@
 <p align="center">
-  <h1 align="center">Self-Improving Coding Agent</h1>
-  <p align="center">A coding agent experiment, that works on its own codebase.</p>
+  <h1 align="center">💰 Money Making Lifeforms 🧬</h1>
+  <p align="center">AI agents that must earn their own existence through trading profits.</p>
   <p align="center">
     <img src="figures/agent_loop.png" alt="Agent Loop" width="80%"/>
   </p>
 </p>
 
-The system operates as an iterative improvement loop:
-1. evaluating the current agent version on some benchmark tasks to capture how well it does
-2. storing the results in an archive
-3. running the agent on its own codebase to work on an improvement
-4. going back to step 1 with the updated agent code
+⚠️ **This is a fork** of [self_improving_coding_agent](https://github.com/MaximeRobeyns/self_improving_coding_agent).
 
-See [our workshop paper](https://openreview.net/pdf?id=rShJCyLsOr) for more details.
+## The Concept
 
-## Quickstart
+**What if an AI agent had to pay for its own compute through trading profits?**
 
-> IMPORTANT NOTE: always run the agent in the provided Docker container. Since the agent can execute shell commands, this offers some isolation from your host machine, avoiding inadvertent file system manipulation and similar risks.
+This system implements **evolutionary natural selection** where agents generate trading strategies in an abstract symbolic language with **no predefined technical indicators**. Fitness is purely economic:
 
-First, make sure you've cloned the repo
+```
+Fitness = Trading Profit - Transaction Costs - LLM API Costs
+```
+
+**If Fitness ≤ 0, the agent dies.**
+
+### The "Oxygen Check"
+
+Like biological organisms need oxygen to survive, these digital organisms need positive cash flow. The agent:
+- Starts with initial capital ($100-$10,000 configurable)
+- Pays ~$0.02 per strategy generation (LLM API costs)
+- Earns money through successful trading strategies
+- **Dies immediately** if balance hits $0 during backtesting
+- **Dies in selection** if profit doesn't cover costs
+
+This creates genuine evolutionary pressure. No arbitrary benchmarks—only real economic constraints.
+
+### Abstract Symbolic Language (Zero Human Bias)
+
+Instead of using human-designed indicators like RSI or MACD, strategies use meaningless symbols:
+
+```
+IF ALPHA(10) > BETA(50) THEN BUY ELSE SELL
+IF GAMMA(14) < 30 THEN BUY ELSE HOLD
+IF OMEGA() >= PSI() THEN HOLD ELSE SELL
+```
+
+**The symbols have no predefined meaning.** The agent doesn't "know" that moving averages exist or that "oversold" is a concept. It must discover profitable patterns through pure trial and error—natural selection with zero priors.
+
+Over hundreds of generations, certain symbol combinations emerge as more fit than others. **These patterns are discovered, not designed.**
+
+See [`cursor_docs/DSL_DESIGN.md`](cursor_docs/DSL_DESIGN.md) for the philosophical rationale.
+
+## How It Works
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                  EVOLUTIONARY CYCLE                      │
+└──────────────────────────────────────────────────────────┘
+
+1. Agent generates DSL trading strategy (abstract symbols)
+   ↓
+2. Strategy backtested on historical OHLCV data
+   ↓
+3. Real-time survival check:
+   - Balance hits $0? → DIES (score = -10000)
+   - Balance positive? → Continue
+   ↓
+4. Calculate fitness: Profit - LLM Cost
+   ↓
+5. Evolutionary selection:
+   - Fitness > 0? → Strategy SURVIVES and propagates
+   - Fitness ≤ 0? → Strategy DIES
+   ↓
+6. Mutate surviving strategy (operators/symbols/actions)
+   ↓
+7. Repeat from step 1
+```
+
+**No gradients. No supervised learning. No human trading folklore.**
+
+Just mutation, selection, and survival of the economically fit.
+
+See [`cursor_docs/EVOLUTIONARY_LOOP.md`](cursor_docs/EVOLUTIONARY_LOOP.md) for implementation details.
+
+## Quick Start 🚀
+
+> **IMPORTANT**: Always run in Docker for isolation. The agent executes shell commands.
+
+### 1. Setup
+
 ```bash
-git clone https://github.com/MaximeRobeyns/self_improving_coding_agent
-```
+# Clone the repo
+git clone https://github.com/YOUR_USERNAME/money_making_lifeforms
 
-Then, export some environment variables which will be made available in the
-docker container. The project supports inference from a number of providers to
-allow for experimentation across many models. You must export at least one of
-these in your _local_ shell, which you can do either directly or with `direnv`,
-`dotenv`, etc. Omitting any provider key will simply make that provider's
-models unavailable to the agent.
+# Export at least one LLM API key
+export ANTHROPIC_API_KEY=your_key_here  # Recommended: Claude 3.5 Sonnet
+export DEEPSEEK_API_KEY=your_key_here   # Budget option
+# ... or other providers (OpenAI, Gemini, Fireworks, Vertex)
 
-```bash
-export ANTHROPIC_API_KEY=  # For Claude models
-export OPENAI_API_KEY=  # For GPT 4o and reasoning models (o1, o3, etc)
-export GEMINI_API_KEY=  # For Gemini models
-export VERTEX_PROJECT_ID=  # For models hosted on GCP's Vertex
-export FIREWORKS_AI_API_KEY=  # For DeepSeek / Llama hosted on fireworks
-export DEEPSEEK_API_KEY=  # For DeepSeek direct inference (V3, R1)
-export MODAL_TOKEN_ID=  # To allow the agent to visit webpages and read papers
-export MODAL_TOKEN_SECRET=  # To allow the agent to visit webpages and read papers
-```
-For gemini, you should replace the template file in `sandbox/GOOGLE_APPLICATION_CREDENTIALS.json` with your own credentials.
+# Build Docker image
+make image  # or make image-mac for Apple Silicon
 
-Once you have at least one LLM provider's API key exported, you can build the docker image. The build command is wrapped in a Makefile target for convenience:
-
-```bash
-make image
-```
-
-If you are using an apple silicon machine, use this target instead:
-```
-make image-mac
-```
-
-Finally, install the requirements in your local python environment:
-```bash
-# remember to activate a virtual environment or equivalent here
+# Install local dependencies (for evolution runner)
 pip install -r base_agent/requirements.txt
-pip install swebench
 ```
 
-### Testing the Agent
+### 2. Try It Out
 
-To test if the setup was successful, you can run the agent interactively with a manually set initial prompt using this target
+**Demo Mode** (No API costs, just explains the system):
 ```bash
-make int
-```
-This will start the docker container and attach your shell to it. You can then run
-```bash
-python -m agent_code.agent --server true -p "<some initial request here>"
-```
-Then open your browser on http://localhost:8080 to follow the agent execution. This will show you an interactive webpage which visualises the events in the event bus / the agent callgraph, allowing you to click on individual events to see them in more detail, read overseer messages, and collapse sub-agent traces.
-
-![Agent Loop](figures/agent_execution.png)
-
-The agent's working directory is mapped to `results/interactive_output` and any files created will be available here on your machine. Agent logs will be in `results/interactive_output/agent_output`.
-
-You can see more options by doing
-```bash
-make help
-```
-or agent arguments wit
-```bash
-python -m base_agent.agent --help
+make int  # Enter Docker container
+python -m agent_code.agent trading-demo
 ```
 
-To further configure the agent, including the choice of LLMs, edit `base_agent/src/config.py`.
-
-## Self-Improvement Loop
-
-To run the self-improvement loop, first inspect the list of benchmarks in the `base_agent/src/benchmarks/__init__.py` file, and make sure that you have uncommented those you want to include. Then do
+**Test a Single Strategy** (No API costs):
 ```bash
-python runner.py
+python -m agent_code.agent trading-test --strategy "IF ALPHA(10) > BETA(50) THEN BUY ELSE HOLD"
 ```
-To see all the options, do
+
+**Agent Learning Mode** (Uses LLM, costs ~$0.02/iteration):
 ```bash
-python runner.py --help
+python -m agent_code.agent trading-learn -n 5 -s
+# Then open http://localhost:8080 to watch it think!
 ```
-Common options might be
+
+**Full Evolution** (Runs generations outside Docker):
 ```bash
+exit  # Leave Docker
+python runner.py --evolution-mode --iterations 10 --workers 4
+```
+
+### 3. Understand the Results
+
+```bash
+# View fitness progression
+cat results/run_1/agent_*/benchmarks/trading/results.jsonl | jq -r '.score'
+
+# See evolved strategies
+cat results/run_1/agent_*/benchmarks/trading/trend_following_1/answer/answer.txt
+```
+
+**Survival indicators:**
+- ✅ `Fitness: $199.88` → Strategy SURVIVED (profit > costs)
+- ❌ `Fitness: -$9,850.00` → Strategy DIED (balance hit zero)
+- ❌ `Fitness: -$0.0065` → Strategy DIED (profit < costs)
+
+See [`TRADING_QUICKSTART.md`](TRADING_QUICKSTART.md) for detailed usage examples.
+
+## Evolution Modes
+
+### Trading Evolution (DSL Mutation)
+
+This runs pure evolutionary computation with the abstract symbolic DSL:
+
+```bash
+# Run multiple generations of mutation and selection
+python runner.py --evolution-mode --iterations 10 --workers 4
+
+# Resume from a previous experiment
+python runner.py --evolution-mode --experiment-id 1 --iterations 20
+```
+
+**How it works:**
+1. Generation 0 creates a random DSL strategy
+2. Each generation:
+   - Backtests the current strategy
+   - Calculates fitness (profit - costs)
+   - If fitness > 0, strategy survives
+   - Mutates the strategy (change operators/symbols/actions)
+3. Repeat until patterns emerge
+
+Results saved to `results/run_<id>/agent_<n>/benchmarks/trading/`
+
+### Meta-Agent Mode (Traditional Self-Improvement)
+
+The original mode where the agent modifies its own codebase:
+
+```bash
+# First, configure benchmarks in base_agent/src/benchmarks/__init__.py
 python runner.py --id 1 --workers 6
 ```
 
-This will start the agent loop, placing the results in `results/run_<id>`.
+This runs the classic self-improvement loop on coding benchmarks.
 
-## Things to work on
+## Research Directions
 
-Here are some potential things to try and do with the agent framework:
+Potential extensions for the Money Making Lifeforms system:
 
-- [ ] get the agent to curate / build more of its own benchmarks
-- [ ] reduce the variance of self-improvement runs (early features often influence subsequent features)
-- [ ] use a stronger LLM to build a scaffold for a weaker LLM
-- [ ] find or create more realistic 'software engineering' benchmark tasks
+### DSL & Evolution
+- [ ] **Expand mutation types**: Mutate symbols, parameters, add nested conditions (AND/OR logic)
+- [ ] **Crossover breeding**: Combine successful strategies from multiple lineages
+- [ ] **Adaptive mutation rates**: Increase mutation when stuck, decrease when improving
+- [ ] **Multi-objective optimization**: Balance profit, risk, and drawdown
 
-## Agent Description
+### Market Integration
+- [ ] **Real-time data**: Connect to Hyperliquid API for live market data
+- [ ] **Multi-asset evolution**: Test strategies across BTC, ETH, SOL simultaneously
+- [ ] **Paper trading**: Deploy surviving strategies to paper trading accounts
+- [ ] **Live deployment**: Run the best evolved strategies with real capital (at your own risk!)
 
-The agent in `base_agent` is a minimal agent that can just about perform the
-meta-improvement task. It lacks efficient file editing tools, devtools such as
-tree sitter or LSP integrations, or advanced reasoning structures that would
-help it out when performing coding tasks. It has the necessary building blocks
-to bootstrap these features and specialise itself to the distribution of
-benchmark tasks included.
+### Economic Modeling
+- [ ] **Dynamic capital allocation**: Adjust starting capital based on agent performance
+- [ ] **Transaction cost modeling**: Include slippage, market impact, and funding rates
+- [ ] **Risk-adjusted fitness**: Sharpe ratio or Sortino ratio instead of raw profit
+- [ ] **Multi-agent competition**: Run populations competing for limited capital
 
-Please see `base_agent/README.md` for a more detailed discussion of the base agent framework.
+### Meta-Learning
+- [ ] **Agent learns to mutate**: LLM proposes mutations instead of random changes
+- [ ] **Strategy explanation**: Agent analyzes why certain symbols work
+- [ ] **Transfer learning**: Apply patterns discovered in one market to another
+- [ ] **Self-modification**: Agent improves its own DSL grammar and interpreter
+
+## System Architecture
+
+### Trading Evolution Components
+
+The Money Making Lifeforms system consists of:
+
+**Core DSL Engine:**
+- `base_agent/src/dsl/grammar.py` - Abstract symbolic language definition
+- `base_agent/src/dsl/interpreter.py` - Strategy parser and backtesting executor
+- `base_agent/src/dsl/mutator.py` - Evolutionary mutation logic
+
+**Fitness Evaluation:**
+- `base_agent/src/benchmarks/trading_benchmarks/trading_benchmark.py` - Economic survival evaluation
+- `benchmark_data/trading/ohlcv.csv` - Historical market data (100 days)
+
+**Evolution Runner:**
+- `runner.py` - Multi-generation orchestrator with mutation and selection
+
+**Agent Modes:**
+- `trading-demo` - Explains the system (no API costs)
+- `trading-test` - Tests a single strategy (no API costs)
+- `trading-learn` - Agent uses LLM to generate and improve strategies
+- `--evolution-mode` - Pure DSL mutation across generations
+
+### Base Agent Framework
+
+The agent inherits from the original self-improving coding agent framework. It still supports traditional meta-improvement on coding benchmarks, but the primary focus is now trading evolution.
+
+See `base_agent/README.md` for the original agent framework documentation.
 
 ```
-├── base_agent
-│   ├── agent_change_log.md
-│   ├── agent.py
-│   ├── conftest.py
-│   ├── description.txt
-│   ├── __main__.py
-│   ├── pytest.ini
-│   ├── README.md
-│   ├── requirements.txt
-│   ├── src
-│   │   ├── agents
-│   │   ├── benchmarks
-│   │   ├── callgraph
-│   │   ├── config.py
-│   │   ├── events
-│   │   ├── __init__.py
-│   │   ├── llm
-│   │   ├── oversight
-│   │   ├── schemas
-│   │   ├── tools
-│   │   ├── types
-│   │   ├── utils
-│   │   └── web_server
-│   └── tests
-│       ├── agents
-│       ├── benchmarks
-│       ├── events
-│       ├── __pycache__
-│       ├── test_example.py
-│       ├── tools
-│       └── utils
-├── benchmark_data
-├── results
-│   ├── run_<id>
-│   └── interactive_output
-├── runner.py
-└── sandbox
+├── base_agent/
+│   ├── src/
+│   │   ├── benchmarks/
+│   │   │   └── trading_benchmarks/
+│   │   │       ├── trading_benchmark.py  # Fitness evaluation
+│   │   │       └── problems.py           # Trading problem definitions
+│   │   ├── dsl/
+│   │   │   ├── grammar.py      # Abstract symbolic language
+│   │   │   ├── interpreter.py  # Strategy parser & backtester
+│   │   │   └── mutator.py      # Evolutionary mutations
+│   │   ├── agents/             # Agent implementations
+│   │   ├── llm/                # LLM providers
+│   │   ├── tools/              # Agent tools
+│   │   ├── web_server/         # Real-time visualization (port 8080)
+│   │   └── ...
+│   └── tests/
+│       ├── benchmarks/
+│       │   └── test_trading_benchmark.py  # Comprehensive tests
+│       ├── dsl/
+│       │   ├── test_interpreter.py
+│       │   └── test_mutator.py
+│       └── ...
+├── benchmark_data/
+│   └── trading/
+│       └── ohlcv.csv           # Historical market data
+├── cursor_docs/
+│   ├── DSL_DESIGN.md           # Philosophy & rationale
+│   ├── EVOLUTIONARY_LOOP.md    # System architecture
+│   ├── RUNNING_EVOLUTION.md    # Usage guide
+│   ├── TROUBLESHOOTING.md      # Common issues
+│   └── WEB_INTERFACE.md        # Visualization guide
+├── results/
+│   ├── run_<id>/               # Evolution results
+│   └── interactive_output/     # Interactive mode outputs
+├── runner.py                   # Evolution orchestrator
+├── TRADING_QUICKSTART.md       # Quick reference
+└── sandbox/                    # Docker environment
 ```
 
 ### Results Organization
@@ -169,17 +282,66 @@ Please see `base_agent/README.md` for a more detailed discussion of the base age
 ```
 results/run_{id}/
 ├── metadata.json          # Experiment metadata
-└── agent_{i}/             # Agent iteration directory
-    ├── agent_code/        # Agent implementation
-    ├── benchmarks/        # Benchmark results
-    │   └── {bench_name}/
-    │       ├── results.jsonl  # Per-problem results
-    │       ├── perf.jsonl     # Summary metrics
-    │       └── traces/        # Detailed traces
-    └── meta_improvement/  # Improvement logs
+└── agent_{i}/             # Generation i results
+    ├── agent_code/        # Agent/DSL code for this generation
+    ├── benchmarks/
+    │   └── trading/
+    │       ├── results.jsonl         # Fitness scores
+    │       │   # {"problem_id": "trend_following_1", "score": 199.88, ...}
+    │       ├── trend_following_1/
+    │       │   └── answer/
+    │       │       └── answer.txt    # Generated DSL strategy
+    │       └── traces/               # Detailed execution traces
+    └── meta_improvement/  # (If using meta-agent mode)
 ```
 
-## Citation
+**Key files:**
+- `answer.txt` - The DSL strategy that was tested
+- `results.jsonl` - Fitness score and survival status
+- Higher generation numbers (`agent_5/`, `agent_10/`) contain evolved strategies
+
+## Documentation
+
+Comprehensive guides in [`cursor_docs/`](cursor_docs/):
+
+- **[DSL_DESIGN.md](cursor_docs/DSL_DESIGN.md)** - Why abstract symbols? Why no technical indicators?
+- **[EVOLUTIONARY_LOOP.md](cursor_docs/EVOLUTIONARY_LOOP.md)** - How fitness evaluation and natural selection work
+- **[RUNNING_EVOLUTION.md](cursor_docs/RUNNING_EVOLUTION.md)** - Detailed usage instructions and monitoring
+- **[TROUBLESHOOTING.md](cursor_docs/TROUBLESHOOTING.md)** - Common issues and solutions
+- **[WEB_INTERFACE.md](cursor_docs/WEB_INTERFACE.md)** - Real-time visualization guide
+- **[TRADING_QUICKSTART.md](TRADING_QUICKSTART.md)** - Quick reference for all trading modes
+
+## Warning ⚠️
+
+**This is experimental software that executes trading strategies. It is for research and educational purposes only.**
+
+- The system uses historical backtesting, not real trading
+- No guarantees of profitability
+- Evolved strategies may overfit to training data
+- Use at your own risk if deploying with real capital
+- Past performance does not indicate future results
+
+**The "survival" mechanism is a research metaphor for economic constraints, not financial advice.**
+
+## Citation & Attribution
+
+### This Fork
+
+This "Money Making Lifeforms" fork explores evolutionary trading with abstract symbolic languages:
+
+```
+@misc{money_making_lifeforms_2025,
+    title={Money Making Lifeforms: Evolutionary Trading with Economic Survival Constraints},
+    author={[Your Name]},
+    year={2025},
+    note={Fork of SICA with trading evolution and abstract symbolic DSL},
+    url={https://github.com/YOUR_USERNAME/money_making_lifeforms}
+}
+```
+
+### Original Work
+
+Based on the SICA (Self-Improving Coding Agent) framework:
 
 ```
 @inproceedings{
@@ -191,3 +353,9 @@ results/run_{id}/
     url={https://openreview.net/forum?id=rShJCyLsOr}
 }
 ```
+
+Original repository: [github.com/MaximeRobeyns/self_improving_coding_agent](https://github.com/MaximeRobeyns/self_improving_coding_agent)
+
+---
+
+**"Nature doesn't know about RSI or MACD. Let's give the agents the same freedom."** 🧬

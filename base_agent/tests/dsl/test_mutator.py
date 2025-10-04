@@ -17,7 +17,7 @@ class TestDslMutator:
     @pytest.fixture
     def simple_program(self):
         interpreter = DslInterpreter()
-        return interpreter.parse("IF SMA(10) > SMA(50) THEN BUY ELSE SELL")
+        return interpreter.parse("IF ALPHA(10) > BETA(50) THEN BUY ELSE SELL")
 
     def test_mutate_operator(self, mutator, simple_program):
         original_operator = simple_program[0].condition.operator
@@ -35,13 +35,13 @@ class TestDslMutator:
 
     def test_to_string_conversion(self, mutator, simple_program):
         dsl_string = mutator.to_string(simple_program)
-        expected_string = "IF SMA(10) > SMA(50) THEN BUY ELSE SELL"
+        expected_string = "IF ALPHA(10) > BETA(50) THEN BUY ELSE SELL"
         # The regex in the interpreter is a bit loose on whitespace, so let's normalize
         assert " ".join(dsl_string.split()) == " ".join(expected_string.split())
 
     def test_string_to_program_to_string(self, mutator):
         interpreter = DslInterpreter()
-        original_string = "IF EMA(20) <= PRICE(0) THEN SELL ELSE HOLD"
+        original_string = "IF GAMMA(20) <= OMEGA() THEN SELL ELSE HOLD"
         program = interpreter.parse(original_string)
         new_string = mutator.to_string(program)
         assert " ".join(original_string.split()) == " ".join(new_string.split())
