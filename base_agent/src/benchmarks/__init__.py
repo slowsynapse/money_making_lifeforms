@@ -27,11 +27,13 @@ from .aiq_project_benchmarks import (
     MessagingAppAIQBenchmark,
     DistKVStoreAIQBenchmark,
 )
+from .trading_benchmarks.trading_benchmark import TradingBenchmark
 
 # Important, append new benchmarks to the end of this
 benchmark_registry: OrderedDict[str, Type[BaseBenchmark]] = OrderedDict(
     [
-        (GSM8KBenchmark.name, GSM8KBenchmark),
+        (TradingBenchmark.name, TradingBenchmark),
+        # (GSM8KBenchmark.name, GSM8KBenchmark),
         # (DROPBenchmark.name, DROPBenchmark),
         # (ARCAGIBenchmark.name, ARCAGIBenchmark),
         # (MATHBenchmark.name, MATHBenchmark),
