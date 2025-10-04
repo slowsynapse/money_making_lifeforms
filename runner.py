@@ -15,6 +15,7 @@ import platform
 import argparse
 import subprocess
 
+from dotenv import load_dotenv
 from uuid import uuid4
 from typing import Type
 from pathlib import Path
@@ -976,6 +977,7 @@ async def run_meta_agent_benchmark(
 
 async def main():
     """Main entry point for the agent runner"""
+    load_dotenv()
     parser = setup_argparse()
     args = parser.parse_args()
     logger.debug(f"Setup parser: {args}")

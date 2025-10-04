@@ -24,3 +24,6 @@ googlesearch-python
 pytest
 pytest-asyncio
 google-cloud-aiplatform
+uvicorn
+watchfiles
+python-dotenv

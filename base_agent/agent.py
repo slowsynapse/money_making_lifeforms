@@ -25,6 +25,7 @@ from .src.agents.implementations.main_orchestrator import MainOrchestratorAgent
 from .src.events.event_bus_utils import log_to_stdout
 from .src.config import settings
 from .src.types.event_types import EventType, Event
+from dotenv import load_dotenv
 
 
 # Configure logging
@@ -437,6 +438,7 @@ class Agent:
 
 async def main():
     """Command-line entry point"""
+    load_dotenv()
     import argparse
 
     parser = argparse.ArgumentParser()

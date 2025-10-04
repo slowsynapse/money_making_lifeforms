@@ -7,6 +7,7 @@ int:  ## Interactive run; uses default shell entrypoint
 	@echo 'python -m agent_code.agent -s -p "<your prompt here>"'
 	@echo 'Watch the agent work on localhost:8080'
 	docker run --rm -ti \
+		--env-file .env \
 		-p 8080:8080 \
 		-v ${PWD}/base_agent:/home/agent/agent_code:ro \
 		-v ${PWD}/results/interactive_output:/home/agent/workdir:rw \
