@@ -15,7 +15,7 @@ from ..base_tool import BaseTool
 from ...types.tool_types import ToolResult
 from ...types.agent_types import AgentInterface
 from ...types.llm_types import FCI, ToolCallContent
-from ...agents.implementations.coder import CodingAgent
+from ...agents.implementations.coder import StrategyDesignerAgent
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -35,27 +35,27 @@ class SubagentBasedReasoningStructure(BaseTool):
         try:
             await parent_agent._handle_agent_call(ToolCallContent(
                 call_id=f"agent_{uuid4().hex[:8]}",
-                tool_name=CodingAgent.AGENT_NAME,
+                tool_name=StrategyDesignerAgent.AGENT_NAME,
                 tool_args=dict(
-                    programming_instructions="Print 'a' in a file called 'a.txt'",
+                    strategy_design_instructions="Design a simple DSL strategy using ALPHA symbol",
                 ),
                 call_type=FCI.UNCONSTRAINED,  # this must always be UNCONSTRAINED when forcing otherwise it causes 400 errors with the providers.
             ))
 
             await parent_agent._handle_agent_call(ToolCallContent(
                 call_id=f"agent_{uuid4().hex[:8]}",
-                tool_name=CodingAgent.AGENT_NAME,
+                tool_name=StrategyDesignerAgent.AGENT_NAME,
                 tool_args=dict(
-                    programming_instructions="Print 'b' in a file called 'b.txt'",
+                    strategy_design_instructions="Design a strategy using BETA and GAMMA symbols",
                 ),
                 call_type=FCI.UNCONSTRAINED,  # this must always be UNCONSTRAINED when forcing otherwise it causes 400 errors with the providers.
             ))
 
             await parent_agent._handle_agent_call(ToolCallContent(
                 call_id=f"agent_{uuid4().hex[:8]}",
-                tool_name=CodingAgent.AGENT_NAME,
+                tool_name=StrategyDesignerAgent.AGENT_NAME,
                 tool_args=dict(
-                    programming_instructions="Print 'c' in a file called 'c.txt'",
+                    strategy_design_instructions="Design a strategy combining multiple symbols with conditional logic",
                 ),
                 call_type=FCI.UNCONSTRAINED,  # this must always be UNCONSTRAINED when forcing otherwise it causes 400 errors with the providers.
             ))

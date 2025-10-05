@@ -1,5 +1,5 @@
-# Self-Improving Coding Agent
-# Copyright (c) 2025 Maxime Robeyns
+# Money Making Lifeforms
+# Copyright (c) 2025 Maxime Robeyns (Original), Joey Wong (Fork)
 #
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
@@ -18,7 +18,7 @@ from ...tools.file_tools import OpenFile, CloseFile
 from ...tools.edit_tools import OverwriteFile
 from ...tools.ripgrep_tool import RipGrepTool
 from ...tools.committee_design import ReviewCommittee
-from .coder import CodingAgent
+from .coder import StrategyDesignerAgent
 from ...utils.metrics import make_random_agent_metrics
 from ...types.agent_types import AgentStatus, AgentResult
 from ...events.event_bus_utils import get_problem_statement
@@ -46,18 +46,21 @@ Note that the agent will not have the context that you have / be able to see the
 
 Example capabilities
 - Problem decomposition and analysis
-- General purpose writing tasks
-- Basic Coding (although not specialised)
-- Quick System and file operations
+- General purpose tasks (documentation, analysis, reporting)
+- Basic strategy-related work (although StrategyDesignerAgent is more specialized)
+- Quick system and file operations
 - Mathematical computation
 - Running shell commands
+- Data analysis
 
 Choose when:
 - Specific agent isn't clearly better
 - Need flexible approach
+- Task is exploratory or analytical
 
 Avoid when:
-- Task fits squarely in another agent's specialty
+- Task requires DSL strategy design (use StrategyDesignerAgent)
+- Task requires archive analysis (use ArchiveExplorer)
 - Requires deep domain expertise"""
 
     SYSTEM_PROMPT = """You are a very-competent problem solver who finds solutions swiftly and effectively.
@@ -69,6 +72,8 @@ You should
 4. Continuously validate and check your work
 
 Aim for simple, elegant and correct solutions.
+
+Context: You are working within a trading strategy evolution system. When relevant, be mindful of economic fitness, survival criteria, and evolutionary principles.
 """
 
     # Available tools - complete access to all tools
@@ -86,7 +91,7 @@ Aim for simple, elegant and correct solutions.
 
     # Available agents
     # AVAILABLE_AGENTS = set()
-    AVAILABLE_AGENTS = {ReasoningAgent, CodingAgent}
+    AVAILABLE_AGENTS = {ReasoningAgent, StrategyDesignerAgent}
 
     HAS_FILEVIEW = True
 

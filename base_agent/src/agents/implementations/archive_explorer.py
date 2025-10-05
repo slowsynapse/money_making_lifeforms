@@ -1,10 +1,10 @@
-# Self-Improving Coding Agent
-# Copyright (c) 2025 Maxime Robeyns
+# Money Making Lifeforms
+# Copyright (c) 2025 Maxime Robeyns (Original), Joey Wong (Fork)
 #
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 """
-Agent for comprehensive archive analysis across agent iterations, benchmarks, and problems.
+Agent for comprehensive archive analysis across trading strategy evolution generations and fitness results.
 """
 
 from pathlib import Path
@@ -32,41 +32,49 @@ class ArchiveExplorer(BaseAgent):
 
     AGENT_NAME = "archive_explorer"
     AGENT_DESCRIPTION = """
-When asked to improve your codebase in a meta-agent update task, use this tool FIRST to thoroughly explore the archive of benchmark runs and historical agent iteration performance, to get some feedback about what we should try improving next.
+When asked to improve the trading strategy evolution system, use this tool FIRST to thoroughly explore the archive of past strategy generations and their fitness performance to get feedback about what to improve next.
 
-For self-improvement runs, you will have the following directory tree mounted:
+For evolution runs, you will have the following directory tree:
 
 Archive Structure
-/home/agent/archive/
-├── agent_{i}/
-│   ├── agent_code/
-│   │   ├── ... (agent implementation)
-│   │   ├── agent_change_log.md (log of agent changes at that agent iteration in time)
-│   │   └── description.txt (agent changes/features)
+results/run_{id}/
+├── agent_{i}/              # Generation i
+│   ├── agent_code/        # DSL code for this generation
+│   │   ├── agent_change_log.md (log of changes)
+│   │   └── description.txt (generation notes)
 │   └── benchmarks/
-│       └── {bench_name}/
-│           ├── perf.json (benchmark summary)
-│           ├── results.jsonl (per-problem results)
+│       └── trading/
+│           ├── results.jsonl (fitness scores)
+│           │   # {"problem_id": "trend_following_1", "score": 199.88, ...}
+│           ├── trend_following_1/
+│           │   └── answer/
+│           │       └── answer.txt (DSL strategy)
 │           └── traces/
 │               └── {problem_id}/
-│                   ├── answer.txt (raw answer)
-│                   ├── summary.txt (performance summary)
+│                   ├── summary.txt (backtest summary)
 │                   ├── trace.txt (full trace)
 │                   └── execution_tree.txt (concise trace)
 
-This agent provides utilities to help efficiently sift through the benchmark results, efficiently performing:
-1. Multi-level analysis (overview, iteration, benchmark, problem)
-2. Performance tracking and comparison
-3. Pattern identification and analysis
-4. Detailed trace examination
-5. Success and failure analysis
+This agent provides utilities to help analyze trading strategy evolution:
+1. Fitness progression across generations
+2. Survival rate analysis (% of strategies with fitness > 0)
+3. Strategy pattern identification (which symbol combinations work)
+4. Mutation impact assessment
+5. Economic performance tracking (profit, costs, risk)
 
-You may also optionally specify a focus to this agent to focus on a specific aspect of agent performance. It is recommended that you first call this agent without a specific focus to get a broad understanding of past agent performance. Then, if you wish to more closely inspect any particular aspect of agent performance, you may provide a focus.
+You may optionally specify a focus. It is recommended to first call this agent without a specific focus to get a broad understanding of strategy evolution performance, then drill down with a specific focus.
 """
 
-    SYSTEM_PROMPT = """You are an expert archive analyst for improving agentic systems. You have been given an archive of past agent iterations, and the performance of each of those agent iterations on a number of benchmarks.
+    SYSTEM_PROMPT = """You are an expert archive analyst for trading strategy evolution systems. You have been given an archive of past strategy generations, and the fitness performance of each generation's strategies.
 
-To analyze it efficiently, you have also been provided with some specialised tools, which you should primarily use. In the event that some agent functionality is not present, you may manually inspect the archive using your file and execute_command tools, although this is discouraged.
+Focus on:
+- Identifying which strategy patterns survive (fitness > 0)
+- Analyzing what makes strategies fail (balance depletion, low profit, high costs)
+- Tracking fitness progression over generations
+- Understanding mutation impacts on strategy performance
+- Finding patterns in successful vs failed strategies
+
+To analyze efficiently, you have been provided with specialized tools. Use them primarily. You may manually inspect the archive using file tools if needed, but prefer the specialized tools.
 """
 
     # Available tools
@@ -87,8 +95,8 @@ To analyze it efficiently, you have also been provided with some specialised too
 
     # Agent parameters
     analysis_focus: str = Field(
-        default="What should be implemented next in order to maximise performance or utility?",
-        description="The analytical focus for exploration",
+        default="What should be implemented next to improve strategy fitness and survival rates?",
+        description="The analytical focus for exploration (e.g., fitness trends, mutation patterns, survival analysis)",
     )
 
     def __init__(self, parent: BaseAgent | None = None, workdir: Path | None = None, logdir: Path | None = None, debug_mode: bool = False, **data):

@@ -10,6 +10,7 @@ int:  ## Interactive run; uses default shell entrypoint
 		--env-file .env \
 		-p 8080:8080 \
 		-v ${PWD}/base_agent:/home/agent/agent_code:ro \
+		-v ${PWD}/benchmark_data:/home/agent/benchmark_data:ro \
 		-v ${PWD}/results/interactive_output:/home/agent/workdir:rw \
 		sica_sandbox
 

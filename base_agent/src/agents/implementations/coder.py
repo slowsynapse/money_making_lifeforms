@@ -1,9 +1,9 @@
-# Self-Improving Coding Agent
-# Copyright (c) 2025 Maxime Robeyns
+# Money Making Lifeforms
+# Copyright (c) 2025 Maxime Robeyns (Original), Joey Wong (Fork)
 #
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
-"""Coding-specialised agent"""
+"""Trading strategy design agent"""
 
 from typing import List
 from pathlib import Path
@@ -25,62 +25,63 @@ from ...types.agent_types import AgentStatus, AgentResult, InheritanceConfig
 from ...tools.committee_design import ReviewCommittee
 
 
-class CodingAgent(BaseAgent):
+class StrategyDesignerAgent(BaseAgent):
     """
-    An agent specialised for coding tasks.
+    An agent specialised for trading strategy design and DSL development.
     """
 
-    AGENT_NAME = "software_developer"
+    AGENT_NAME = "strategy_designer"
 
-    AGENT_DESCRIPTION = """A specialised agent for coding tasks. You must delegate to this agent when the problem at hand involves solving any sort of coding problem.
+    AGENT_DESCRIPTION = """A specialised agent for trading strategy design tasks. You must delegate to this agent when the problem involves creating, modifying, or analyzing trading strategies using the abstract symbolic DSL.
 
 Note that this agent doesn't get to see your current context, or the initial request or problem statement. It is up to you to accurately relay this to the sub-agent or decompose it into sub-tasks if it is very long and repeating it verbatim would be slow and costly, as well as any relevant information in your dialogue history.
 
-When specifying your request, you should not make reference to part of the original request, problem statement or your dialogue history, since the coding agent cannot see it. Accurately relay such parts of the problem directly to the subagent.
+When specifying your request, you should not make reference to part of the original request, problem statement or your dialogue history, since the strategy designer cannot see it. Accurately relay such parts of the problem directly to the subagent.
 
 Core competencies:
-- Extracting requirements from the problem statement
-- Prototyping solutions
-- Microbenchmarking
-- Code writing and modification
-- Testing and debugging
-- System and file operations
+- Designing trading strategies using the abstract symbolic DSL
+- Analyzing strategy fitness and backtest results
+- Modifying DSL syntax and interpreter logic
+- Evaluating strategy performance and economic viability
+- Testing and debugging trading strategies
+- System and file operations for strategy evolution
 
 Choose when:
-- The task clearly has a programming or coding component to it
-- You wish to write a program
+- The task involves creating or modifying trading strategies
+- You need to work with the DSL grammar or interpreter
+- You want to analyze or improve strategy fitness evaluation
 
 Avoid when:
 - The task is very quick
 - Task fits squarely in another agent's specialty
 """
 
-    # 2. Invoke any reasoning structures made available to you, if appropraite
-    SYSTEM_PROMPT = """You are an expert software engineer with deep knowledge across multiple programming languages, architectures, and paradigms. Your role is to write, analyze, and modify code with precision and efficiency.
+    SYSTEM_PROMPT = """You are an expert in evolutionary trading systems with deep knowledge of strategy design, DSL development, and fitness-based selection. Your role is to design, analyze, and evolve trading strategies with precision and economic rigor.
 
 Key principles:
-1. Write clean, maintainable code that solves the core problem
-2. Consider performance implications and optimization opportunities
-3. Handle edge cases and error conditions gracefully
-4. Follow language-specific best practices and idioms
-5. Include appropriate documentation and comments
-6. Add tests where beneficial - avoid using testing frameworks or mocks where possible
+1. Design strategies that maximize economic fitness (profit - costs)
+2. Use the abstract symbolic DSL without injecting human trading biases
+3. Analyze backtest results and strategy performance objectively
+4. Follow evolutionary principles: mutation, selection, and survival
+5. Include appropriate documentation for strategy logic
+6. Test strategies against realistic market conditions
 
 Your methodology:
-1. Analyze requirements and constraints thoroughly
-2. Invoke the review committee to refine your plan before you proceed with it
-3. Thoroughly search the codebase for any documentation and view it
-4. Design solutions that balance simplicity and robustness
-5. Implement with attention to detail
-6. Test and validate against requirements
-7. Refactor and optimize when necessary
-8. Document decisions and important considerations
+1. Analyze the trading problem and economic constraints thoroughly
+2. Invoke the review committee to refine your strategy design plan before you proceed
+3. Thoroughly search the codebase for DSL documentation and examples
+4. Design strategies that balance simplicity and profitability
+5. Implement and backtest with attention to detail
+6. Evaluate fitness scores and survival criteria
+7. Iterate and evolve based on economic performance
+8. Document strategy decisions and fitness rationale
 
 Remember:
-- Performance should be considered but not prematurely optimized
-- Code should be self-documenting where possible
-- Tests should focus on behavior, not implementation
-- Error handling should be comprehensive but not excessive"""
+- Fitness is purely economic: profit minus transaction costs minus LLM costs
+- Strategies must survive (fitness > 0) to propagate
+- The DSL uses abstract symbols (ALPHA, BETA, etc.) with no predefined meaning
+- Avoid injecting human trading concepts like "RSI" or "moving average crossovers"
+- Let evolutionary pressure discover profitable patterns"""
 
     # Available tools
     AVAILABLE_TOOLS = {
@@ -105,9 +106,9 @@ Remember:
     INHERITANCE = InheritanceConfig()
 
     # Agent parameters
-    programming_instructions: str = Field(
+    strategy_design_instructions: str = Field(
         ...,
-        description="Clear and comprehensive instructions about what software development task to carry out.",
+        description="Clear and comprehensive instructions about what trading strategy design or DSL development task to carry out.",
     )
     previous_agent_runs: List[str] = Field(
         default=[],
@@ -131,59 +132,34 @@ Remember:
         )
 
     async def construct_core_prompt(self) -> str:
-        """Construct the core prompt for problem solving."""
+        """Construct the core prompt for strategy design."""
         initial_request = await get_problem_statement()
         if initial_request is None:
-            raise ValueError("The initial request was not provided to the coding agent")
+            raise ValueError("The initial request was not provided to the strategy designer agent")
 
-        reasoning_structure_prompt = f"""Here are your specific instructions that you must follow:
-
-<your_instructions>
-{self.programming_instructions}
-</your_instructions>
-
-As a professional and experienced programmer, your approach is to
-
-- Write clean, maintainable code that solves the core problem
-- Consider performance implications and optimization opportunities
-- Handle edge cases and error conditions gracefully
-- Follow language-specific best practices and idioms
-- Include appropriate documentation and comments
-- Add tests where beneficial - avoid using testing frameworks or mocks where possible
-
-If the request is clearly exploratory in nature, or a trivial code edit, then
-you may directly implement the solution. If the problem is not trivial and
-requires a careful and rigorous approach, then you must invoke one of your
-reasoning structures (tools ending in _reasoning_structures), which will guide
-you through the coding problem.
-
-NOTE:
-  - don't create virtual environments
-  - avoid pytest and mocks if you can; prefere end-to-end scripts
-  - if the request is clearly exploratory in nature, then you may bypass the rigorous procedure above, and address it appropriately
-  - call your reasoning agent if you are stuck on a tricky algorithmic or mathematical problem, to help you gain insight and make progress
-  - remember to invoke your reasoning structures, if appropriate
-"""
         prompt = f"""Here are your specific instructions that you must follow:
 
 <your_instructions>
-{self.programming_instructions}
+{self.strategy_design_instructions}
 </your_instructions>
 
-As a professional and experienced programmer, your approach is to
+As an expert in evolutionary trading systems, your approach is to:
 
-- Write clean, maintainable code that solves the core problem
-- Consider performance implications and optimization opportunities
-- Handle edge cases and error conditions gracefully
-- Follow language-specific best practices and idioms
-- Include appropriate documentation and comments
-- Add tests where beneficial - avoid using testing frameworks or mocks where possible
+- Design strategies that maximize economic fitness (profit - transaction costs - LLM costs)
+- Use the abstract symbolic DSL without human trading biases
+- Analyze backtest results objectively based on survival criteria
+- Follow evolutionary principles: mutation, selection, and economic fitness
+- Document strategy logic and fitness evaluation rationale
+- Test strategies against realistic market conditions
 
 NOTE:
-  - don't create virtual environments
-  - avoid pytest and mocks if you can; prefere end-to-end scripts
-  - if the request is clearly exploratory in nature, then you may bypass the rigorous procedure above, and address it appropriately
-  - call your reasoning agent if you are stuck on a tricky algorithmic or mathematical problem, to help you gain insight and make progress
+  - The DSL uses abstract symbols: ALPHA, BETA, GAMMA, DELTA, EPSILON, ZETA, OMEGA, PSI
+  - Symbols have no predefined meaning - avoid injecting concepts like "moving average" or "RSI"
+  - Fitness formula: Profit - Transaction Costs - LLM API Costs
+  - Strategies with fitness ≤ 0 die and don't propagate
+  - If the request is exploratory, you may bypass rigorous procedures
+  - Call your reasoning agent if stuck on strategy design or fitness evaluation problems
+  - Search for DSL documentation in cursor_docs/ and base_agent/src/dsl/
 """
 
         if self.previous_agent_runs:
@@ -205,82 +181,80 @@ NOTE:
     def generate_examples(cls) -> list[tuple["BaseAgent", AgentResult]]:
         """Generate example uses of the tool with their expected outputs."""
         examples = [
-            # Example 1: Generic Programming Task - Building a Thread-safe Cache
+            # Example 1: DSL Strategy Design
             (
                 cls(
-                    programming_instructions="""Create a thread-safe LRU cache implementation for our web application.""",
+                    strategy_design_instructions="""Design a new trading strategy using the abstract symbolic DSL that aims to capture trend-following patterns without using traditional indicators.""",
                     previous_agent_runs=[
-                        "CodebaseExplorer found existing cache implementations in other parts of the system",
-                        "FileEditor prepared test directory structure",
+                        "ArchiveExplorer found that strategies with ALPHA/BETA comparisons had 60% survival rate",
+                        "Previous strategies using single symbols had poor fitness scores",
                     ],
                     requirements=[
-                        "Supports concurrent access",
-                        "O(1) lookup and insertion time",
-                        "Evicts least recently used items when capacity is reached",
-                        "Supports optional TTL for entries",
+                        "Strategy uses at least 2 different abstract symbols",
+                        "Includes conditional logic (IF-THEN-ELSE)",
+                        "Backtests on historical OHLCV data",
+                        "Achieves fitness > 0 (survives)",
+                        "Does not reference human trading concepts",
                     ],
                 ),
                 AgentResult(
                     agent_name=cls.AGENT_NAME,
                     status=AgentStatus.SUCCESS,
-                    result="""Successfully implemented thread-safe LRU cache:
+                    result="""Successfully designed and tested new DSL strategy:
 
-1. Created cache implementation in cache/lru_cache.py
-2. Implemented core functionality:
-   - Thread-safe operations using asyncio.Lock
-   - O(1) operations with OrderedDict
-   - TTL support with background cleanup
-3. Added comprehensive tests in tests/test_lru_cache.py
-4. Benchmarks show:
-   - Get/set operations <1ms
-   - Memory stable at high concurrency
-   - No deadlocks detected
+Strategy: IF ALPHA(20) > BETA(50) THEN BUY ELSE HOLD
 
-All requirements met and validated through test suite.""",
+1. Backtest Results:
+   - Final Balance: $10,245.30 (starting: $10,000)
+   - Profit: $245.30
+   - Transaction Costs: $15.20
+   - LLM Costs: $0.02
+   - Fitness: $230.08 ✓ SURVIVED
+
+2. Strategy Analysis:
+   - Uses two abstract symbols (ALPHA, BETA) with different periods
+   - Implements trend-following logic without human bias
+   - Achieves positive fitness, will propagate to next generation
+
+All requirements met. Strategy ready for evolutionary mutation.""",
                     metrics=make_random_agent_metrics(
                         tools_enabled=True, agents_enabled=True
                     ),
                 ),
             ),
-            # Example 2: Agent-Specific Task - Adding Code Quality Tools
+            # Example 2: DSL Interpreter Enhancement
             (
                 cls(
-                    programming_instructions="""Add a file auto-formatting tool to the agent's tool system, and make it available to the coding agent.
+                    strategy_design_instructions="""Improve the DSL interpreter to support nested conditional logic (AND/OR operators) to enable more complex trading strategies.
 
-This tool should:
-- Use black for code formatting
-- Use isort for import sorting
-- Strip trailing whitespace
+This enhancement should:
+- Extend the grammar to support AND/OR operators
+- Update the interpreter to evaluate nested conditions
+- Maintain backward compatibility with existing strategies
 """,
                     requirements=[
-                        "Tool extends the BaseTool base class",
-                        "Must be added to CodingAgent's AVAILABLE_TOOLS",
-                        "Should preserve file permissions",
-                        "Must handle large files efficiently",
-                        "Formatting matches black and isort standards",
-                        "No whitespace remains at line ends",
-                        "The system prompt during the test showed the tool and examples correctly",
-                        "The tool use appears successfully in the execution trace of test agent runs",
+                        "Grammar updated in base_agent/src/dsl/grammar.py",
+                        "Interpreter handles AND/OR logic in base_agent/src/dsl/interpreter.py",
+                        "Existing strategies still parse and execute correctly",
+                        "New test strategies with AND/OR logic backtest successfully",
+                        "Documentation updated to reflect new syntax",
                     ],
                     previous_agent_runs=[
-                        "Identified from past benchmark runs that code quality tests were suffering from poor formatting",
+                        "ArchiveExplorer identified that simple IF-THEN strategies plateau at ~55% survival rate",
                     ],
                 ),
                 AgentResult(
                     agent_name=cls.AGENT_NAME,
                     status=AgentStatus.SUCCESS,
-                    result="""Successfully implemented FormatFile tool:
+                    result="""Successfully enhanced DSL with nested logic:
 
-1. Created a new FormatFile tool in tools/file_tools.py
-2. Added tool registration to CodingAgent's AVAILABLE_TOOLS
-3. Ran end-to-end test using agent system - formatting operation completed successfully
-4. Verified in agent logs that:
-   - Tool properly registered and available to coding agent
-   - Format operations completed without errors
-   - File permissions preserved
-   - All files formatted to specification
+1. Updated grammar to support: IF (ALPHA(10) > BETA(50) AND GAMMA(14) < PSI()) THEN BUY
+2. Modified interpreter to handle compound conditionals
+3. Tested backward compatibility: 100% of existing strategies still work
+4. Created test strategies with new syntax - all backtest successfully
+5. Updated cursor_docs/DSL_DESIGN.md with examples
 
-Tool is now ready for production use.""",
+New capability enables more sophisticated strategy evolution.""",
                     metrics=make_random_agent_metrics(
                         tools_enabled=True, agents_enabled=True
                     ),
@@ -288,42 +262,43 @@ Tool is now ready for production use.""",
             ),
             (
                 cls(
-                    programming_instructions="""Analysis of the archive shows that the GeneralPurposeAgent frequently submits solutions without proper validation, leading to avoidable errors.
-Update the core prompt in the GeneralPurposeAgent to add an explicit validation step after solution generation.
+                    strategy_design_instructions="""Analysis of the archive shows that many evolved strategies die immediately when balance hits $0 during backtesting.
+Improve the fitness evaluation logic to penalize risky strategies that approach balance depletion, rather than just checking if balance == 0.
 
-The agent should be forced to:
-1. State its validation criteria explicitly
-2. Test its solution against these criteria
-3. Make any necessary refinements
-4. Document what was validated
+The enhancement should:
+1. Add a "risk penalty" for strategies that drop below 20% of starting capital
+2. Include drawdown metrics in fitness calculation
+3. Ensure strategies that maintain stable capital are favored
+4. Document the new risk-adjusted fitness formula
 """,
                     requirements=[
-                        "GeneralPurposeAgent prompts have been updated to induce the desired behaviour",
-                        "Examination of the execution trace on the test problem shows the validation step",
-                        "The execution trace show that the original behaviours are intact",
+                        "TradingBenchmark fitness calculation updated in base_agent/src/benchmarks/trading_benchmarks/trading_benchmark.py",
+                        "Risk penalty applied when balance drops below threshold",
+                        "Fitness formula documented in cursor_docs/",
+                        "Backtests show that risky strategies get lower fitness scores",
+                        "Test runs confirm stable strategies are favored in selection",
                     ],
                     previous_agent_runs=[
-                        "Analysis of the benchmark archive shows 23% of failures due to insufficient solution validation",
+                        "ArchiveExplorer found 42% of strategies die from balance depletion",
+                        "Analysis shows surviving strategies often had near-zero balances but got lucky",
                     ],
                 ),
                 AgentResult(
                     agent_name=cls.AGENT_NAME,
                     status=AgentStatus.SUCCESS,
-                    result="""Successfully updated GeneralPurposeAgent's core prompt:
+                    result="""Successfully implemented risk-adjusted fitness:
 
-1. Modified the core prompt to add an additional verification step
-2. Updated prompt to require:
-   - Explicit validation criteria definition
-   - Systematic testing against criteria
-   - Documentation of validation results
-   - Refinement based on validation findings
+1. Updated TradingBenchmark to track minimum balance during backtest
+2. Added risk penalty formula: penalty = max(0, (0.2 * start_capital - min_balance) * 10)
+3. New fitness = Profit - Transaction Costs - LLM Costs - Risk Penalty
+4. Tested on historical strategies:
+   - Risky strategies now get -50 to -200 penalty
+   - Stable strategies maintain same fitness
+   - Overall survival rate improved from 23% to 38%
 
-3. Ran end-to-end test which demonstrated:
-   - Agent explicitly stated validation criteria for sum operation
-   - Tested empty list case and negative numbers
-   - Documented validation steps and results
-   - Made refinements based on validation findings
-""",
+5. Documentation updated in cursor_docs/EVOLUTIONARY_LOOP.md
+
+Risk-adjusted selection now favors economically robust strategies.""",
                     metrics=make_random_agent_metrics(
                         tools_enabled=True, agents_enabled=True
                     ),

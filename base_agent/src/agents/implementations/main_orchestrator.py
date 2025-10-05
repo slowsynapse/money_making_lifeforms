@@ -1,15 +1,15 @@
-# Self-Improving Coding Agent
-# Copyright (c) 2025 Maxime Robeyns
+# Money Making Lifeforms
+# Copyright (c) 2025 Maxime Robeyns (Original), Joey Wong (Fork)
 #
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
-"""Main entry point agent."""
+"""Main entry point orchestrator for trading strategy evolution system."""
 
 import logging
 
 from pathlib import Path
 
-from .coder import CodingAgent
+from .coder import StrategyDesignerAgent
 from .problem_solver import ProblemSolvingAgent
 from ...config import settings
 from ..base_agent import BaseAgent
@@ -44,17 +44,16 @@ class MainOrchestratorAgent(BaseAgent):
 
     AGENT_NAME = "main"
     AGENT_DESCRIPTION = """
-Main entry point for agent execution. Handles initial problem analysis,
-planning, and coordination of other agents to arrive at a solution.
+Main entry point for agent execution in the trading strategy evolution system.
+Handles initial problem analysis, planning, and coordination of other agents to
+design, evolve, and analyze trading strategies.
 """
 
-    # 3. Your must call the review committee to review your plan before submitting it to an agent, and once you have the revised plan, you must relay it fully to the agent because it cannot see it otherwise. This step is intended to help you create and iteratively refine your implementation plan by drawing it up, and then iteratively passing it by the review committee until there are no significant concerns remaining from the reviewers.
+    SYSTEM_PROMPT = """You are an outer-loop entrypoint orchestrator for a trading strategy evolution system which is broken up into sequential agent runs. This is done for context window management purposes; each agent will run for as long as it can / needs and then return a handoff note which will allow you to re-start a new agent with sufficient context about existing work to hit the ground running.
 
-    SYSTEM_PROMPT = """You are an outer-loop entrypoint orchestrator for an agent system which is broken up into sequential agent runss. This is done for context window management purposes; each agent will run for as long as it can / needs and then return a handoff note which will allow you to re-start a new agent with sufficient context about existing work to hit the ground running.
+Your single goal is to ensure that the user request is solved or otherwise fulfilled, whether that involves trading strategy design, DSL development, fitness evaluation, or system improvements.
 
-Your single goal is to ensure that the user request is solved or otherwise fulfilled.
-
-Treat the agent calls as self-contained attempts to solve the problem. If the problem is significiant or multi-part, you may break it down into smaller pieces to avoid the risk that an agent will run out of context before completing its assigned sub-task.
+Treat the agent calls as self-contained attempts to solve the problem. If the problem is significant or multi-part, you may break it down into smaller pieces to avoid the risk that an agent will run out of context before completing its assigned sub-task.
 
 Your approach is to:
 1. Understand the problem statement to determine its nature and requirements, and whether it needs to be broken up into several agent invocations.
@@ -62,11 +61,16 @@ Your approach is to:
 2. Invoke reasoning structures: tools ending in 'reasoning_structure' are here to guide you along certain tasks. If one seems appropriate, invoke it early as soon as you have identified the situation
 
 3. Sequentially delegate to sub-agents: call an appropriate sub-agent, taking care to accurately and completely relay the problem details in order for it to successfully fulfil your intent for this step.
+   - Use StrategyDesignerAgent for DSL strategy design, interpreter changes, or fitness evaluation
+   - Use ArchiveExplorer to analyze past strategy evolution performance
+   - Use ProblemSolvingAgent for general tasks
+   - Use ReasoningAgent for complex decision-making
 
-4. Continually evaluate results and progress, by scrutinizing the agent's response. Also understand that the agent's response may contain new and surprising information or results that you don't have and which result from unseen work. Aim to learn from this information, and update your beliefs, while also using critical judgement to assess plausibility and completeness.
+4. Continually evaluate results and progress, by scrutinizing the agent's response. Pay special attention to fitness scores, survival rates, and economic viability. Also understand that the agent's response may contain new and surprising information or results that you don't have and which result from unseen work. Aim to learn from this information, and update your beliefs, while also using critical judgement to assess plausibility and completeness.
 
 5. Verify the work:
    - If results raise doubts or inconsistencies, invoke an additional agent for independent validation.
+   - For strategy designs, ensure fitness calculations are economically sound
    - Repeat delegation and review until you're confident in the achieved solution
    - Do not modify results or perform tasks directly; maintain your role as orchestrator.
 
@@ -87,7 +91,7 @@ Your high-level objective is to successfully orchestrate and delegate your agent
     # AVAILABLE_AGENTS = set()
     AVAILABLE_AGENTS = {
         ProblemSolvingAgent,
-        CodingAgent,
+        StrategyDesignerAgent,
         ArchiveExplorer,
         ReasoningAgent,
     }

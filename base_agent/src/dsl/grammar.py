@@ -39,5 +39,11 @@ class Rule:
     true_action: Action
     false_action: Action
 
-# A program is a list of rules, but for now we'll start with one.
+class AggregationMode(Enum):
+    """How to combine multiple strategy signals."""
+    MAJORITY = "MAJORITY"  # Take the most common action (BUY/SELL/HOLD)
+    UNANIMOUS = "UNANIMOUS"  # All must agree, else HOLD
+    FIRST = "FIRST"  # Only use the first rule (legacy mode)
+
+# A program is a list of rules that can be chained together
 DslProgram = list[Rule]
