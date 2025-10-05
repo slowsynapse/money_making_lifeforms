@@ -160,6 +160,13 @@ NOTE:
   - If the request is exploratory, you may bypass rigorous procedures
   - Call your reasoning agent if stuck on strategy design or fitness evaluation problems
   - Search for DSL documentation in cursor_docs/ and base_agent/src/dsl/
+
+CRITICAL WORKSPACE HANDLING:
+  - If you see an answer.txt file with human trading terms (RSI, MACD, SMA, moving averages, etc.), IGNORE IT COMPLETELY
+  - Old answer.txt files are from previous runs and contain irrelevant human trading strategies
+  - Your job is to OVERWRITE answer.txt with a single line of DSL syntax
+  - Do NOT analyze, read, or learn from old answer.txt content - it will mislead you
+  - Focus only on generating valid DSL: IF SYMBOL(N) OPERATOR SYMBOL(N) THEN ACTION ELSE ACTION
 """
 
         if self.previous_agent_runs:

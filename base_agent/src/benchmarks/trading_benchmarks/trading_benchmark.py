@@ -207,7 +207,16 @@ Now generate your next strategy in `answer.txt`:**"""
     async def setup_problem(self, problem: Problem, problem_data_dir: Path, container_name: str) -> None:
         """
         Copies the OHLCV data into the agent's working directory.
+        Also cleans up any old answer.txt files to prevent contamination.
         """
+        # Clean up old answer.txt if it exists (prevents contamination from previous runs)
+        import shutil
+        agent_outputs = problem_data_dir / "agent_outputs"
+        if agent_outputs.exists():
+            shutil.rmtree(agent_outputs)
+            print(f"Cleaned old agent_outputs directory")
+
+        # Copy fresh market data
         source_data_path = Path("benchmark_data/trading/ohlcv.csv")
         destination_data_path = problem_data_dir / "ohlcv.csv"
         destination_data_path.write_bytes(source_data_path.read_bytes())

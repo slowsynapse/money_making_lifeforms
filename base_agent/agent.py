@@ -661,7 +661,7 @@ async def run_trading_learn(
             try:
                 tokens, cached, cost, duration = await agent.exec(
                     problem=problem.statement,
-                    timeout=120,  # 2 minute timeout per iteration
+                    timeout=180,  # 3 minute timeout per iteration
                     cost_threshold=cost_threshold,
                 )
                 
@@ -812,17 +812,24 @@ async def run_trading_evolve(
     generations: int,
     workdir: Path,
     initial_strategy: str | None = None,
+    fitness_goal: float = 200.0,  # Target fitness to achieve before early termination
 ) -> None:
     """
     Evolve trading strategies through pure DSL mutation.
 
     No LLM usage after generation 0 - completely FREE!
     Uses fitness-based selection and mutation to evolve strategies.
+
+    Termination conditions:
+    - Reaches fitness_goal (early success)
+    - Completes all generations
+    - No improvement for 20 consecutive generations (stagnation)
     """
     print("\n" + "="*70)
     print("TRADING STRATEGY EVOLUTION MODE")
     print("="*70)
-    print(f"\nEvolving strategies for {generations} generations using pure mutation.")
+    print(f"\nEvolving strategies for up to {generations} generations using pure mutation.")
+    print(f"🎯 Goal: Achieve fitness of ${fitness_goal:.2f}")
     print("💰 FREE after Gen 0! No LLM costs, just natural selection.\n")
 
     try:
@@ -904,6 +911,17 @@ async def run_trading_evolve(
         best_fitness = current_fitness
         best_strategy = current_strategy
         best_generation = 0
+        generations_without_improvement = 0
+
+        # Check if Gen 0 already met the goal
+        if current_fitness >= fitness_goal:
+            print(f"\n🎯 GOAL ACHIEVED IN GEN 0! Fitness: ${current_fitness:.2f} >= ${fitness_goal:.2f}")
+            print(f"Terminating early - no need to evolve further!")
+            # Save and exit early
+            best_strategy_file = results_dir / "best_strategy.txt"
+            best_strategy_file.write_text(current_strategy)
+            print(f"✓ Best strategy saved to: {best_strategy_file}")
+            return
 
         # Evolve!
         for gen in range(1, generations + 1):
@@ -959,7 +977,21 @@ async def run_trading_evolve(
                 best_fitness = mutated_fitness
                 best_strategy = mutated_strategy
                 best_generation = gen
+                generations_without_improvement = 0
                 print(f"🏆 NEW BEST! Fitness: ${best_fitness:.2f}")
+
+                # Auto-save best strategy
+                best_strategy_file = results_dir / "best_strategy.txt"
+                best_strategy_file.write_text(best_strategy)
+                print(f"✓ Auto-saved to: {best_strategy_file}")
+
+                # Check if we've reached the goal
+                if best_fitness >= fitness_goal:
+                    print(f"\n🎯 GOAL ACHIEVED! Fitness: ${best_fitness:.2f} >= ${fitness_goal:.2f}")
+                    print(f"Terminating early at generation {gen}")
+                    break
+            else:
+                generations_without_improvement += 1
 
             population_history.append({
                 'generation': gen,
@@ -969,6 +1001,12 @@ async def run_trading_evolve(
                 'parent': current_strategy,
                 'selection': selection
             })
+
+            # Check for stagnation (no improvement for 20 generations)
+            if generations_without_improvement >= 20:
+                print(f"\n⚠️  STAGNATION DETECTED: No improvement for 20 generations")
+                print(f"Terminating early at generation {gen}")
+                break
 
         # Final summary
         print(f"\n{'='*70}")
@@ -1145,6 +1183,13 @@ async def main():
         default=None,
         help="Starting strategy (if None, generates random)",
     )
+    evolve_parser.add_argument(
+        "--fitness-goal",
+        "-f",
+        type=float,
+        default=200.0,
+        help="Target fitness to achieve for early termination (default: 200.0)",
+    )
 
     # For backward compatibility, also accept args without subcommand
     parser.add_argument(
@@ -1223,6 +1268,7 @@ async def main():
                 generations=args.generations,
                 workdir=Path(args.workdir),
                 initial_strategy=args.initial_strategy,
+                fitness_goal=args.fitness_goal,
             )
             return
             
