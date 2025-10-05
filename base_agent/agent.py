@@ -801,7 +801,213 @@ async def run_trading_learn(
             print(f"   Iteration {h['iteration']}: {status} ${h['fitness']:.2f} - {h['strategy'][:50]}")
         
         print(f"\n✓ All logs saved to: {logdir if logdir else workdir}")
-        
+
+    except Exception as e:
+        print(f"\n❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+async def run_trading_evolve(
+    generations: int,
+    workdir: Path,
+    initial_strategy: str | None = None,
+) -> None:
+    """
+    Evolve trading strategies through pure DSL mutation.
+
+    No LLM usage after generation 0 - completely FREE!
+    Uses fitness-based selection and mutation to evolve strategies.
+    """
+    print("\n" + "="*70)
+    print("TRADING STRATEGY EVOLUTION MODE")
+    print("="*70)
+    print(f"\nEvolving strategies for {generations} generations using pure mutation.")
+    print("💰 FREE after Gen 0! No LLM costs, just natural selection.\n")
+
+    try:
+        from .src.benchmarks.trading_benchmarks.trading_benchmark import TradingBenchmark
+        from .src.dsl.interpreter import DslInterpreter
+        from .src.dsl.mutator import DslMutator
+        import random
+
+        benchmark = TradingBenchmark()
+        interpreter = DslInterpreter()
+        mutator = DslMutator()
+        problem_id = "trend_following_1"
+        base_problem = benchmark.get_problem(problem_id)
+
+        # Create results directory
+        results_dir = workdir / "evolution"
+        results_dir.mkdir(parents=True, exist_ok=True)
+
+        # Track all generations
+        population_history = []
+
+        # Generation 0: Initial strategy
+        print(f"{'='*70}")
+        print(f"GENERATION 0: Initial Strategy")
+        print(f"{'='*70}")
+
+        if initial_strategy:
+            current_strategy = initial_strategy
+            print(f"Using provided strategy: {current_strategy}")
+        else:
+            # Generate random initial strategy
+            from .src.dsl.grammar import Indicator, Operator, Action as DslAction
+
+            ind1 = random.choice(list(Indicator))
+            ind2 = random.choice(list(Indicator))
+            param1 = random.choice([0, 5, 10, 14, 20, 30, 50, 100, 200])
+            param2 = random.choice([0, 5, 10, 14, 20, 30, 50, 100, 200])
+            op = random.choice(list(Operator))
+            action1 = random.choice(list(DslAction))
+            action2 = random.choice([a for a in DslAction if a != action1])
+
+            param1_str = "" if param1 == 0 else str(param1)
+            param2_str = "" if param2 == 0 else str(param2)
+
+            current_strategy = f"IF {ind1.name}({param1_str}) {op.value} {ind2.name}({param2_str}) THEN {action1.name} ELSE {action2.name}"
+            print(f"Generated random strategy: {current_strategy}")
+
+        # Setup and test Gen 0
+        gen0_dir = results_dir / "gen_0"
+        gen0_dir.mkdir(parents=True, exist_ok=True)
+
+        await benchmark.setup_problem(base_problem, gen0_dir, "evolve_container")
+
+        # Write strategy
+        answer_file = gen0_dir / "answer.txt"
+        answer_file.write_text(current_strategy)
+
+        print(f"\n⚙️  Testing generation 0...")
+        score, error, discussion = await benchmark.score_problem(
+            base_problem,
+            str(gen0_dir),
+            str(gen0_dir),
+            "evolve_container"
+        )
+
+        current_fitness = score
+        survived = score > 0
+        status = "✓ SURVIVED" if survived else "✗ DIED"
+        print(f"\n{status} - Fitness: ${current_fitness:.2f}")
+
+        population_history.append({
+            'generation': 0,
+            'strategy': current_strategy,
+            'fitness': current_fitness,
+            'survived': survived,
+            'parent': None
+        })
+
+        best_fitness = current_fitness
+        best_strategy = current_strategy
+        best_generation = 0
+
+        # Evolve!
+        for gen in range(1, generations + 1):
+            print(f"\n{'='*70}")
+            print(f"GENERATION {gen}: Mutation & Selection")
+            print(f"{'='*70}")
+
+            # Parse current strategy
+            program = interpreter.parse(current_strategy)
+            if not program:
+                print(f"❌ Failed to parse strategy, generating new random one")
+                # Fallback: generate new random strategy
+                continue
+
+            # Mutate
+            print(f"Parent: {current_strategy}")
+            mutated_program = mutator.mutate(program)
+            mutated_strategy = mutator.to_string(mutated_program)
+            print(f"Child:  {mutated_strategy}")
+
+            # Setup and test mutant
+            gen_dir = results_dir / f"gen_{gen}"
+            gen_dir.mkdir(parents=True, exist_ok=True)
+
+            await benchmark.setup_problem(base_problem, gen_dir, "evolve_container")
+
+            answer_file = gen_dir / "answer.txt"
+            answer_file.write_text(mutated_strategy)
+
+            print(f"\n⚙️  Testing generation {gen}...")
+            score, error, discussion = await benchmark.score_problem(
+                base_problem,
+                str(gen_dir),
+                str(gen_dir),
+                "evolve_container"
+            )
+
+            mutated_fitness = score
+            mutated_survived = score > 0
+
+            # Selection: Keep better strategy
+            if mutated_fitness > current_fitness:
+                print(f"\n✓ IMPROVEMENT! ${current_fitness:.2f} → ${mutated_fitness:.2f}")
+                current_strategy = mutated_strategy
+                current_fitness = mutated_fitness
+                selection = "CHILD WINS"
+            else:
+                print(f"\n→ No improvement. ${mutated_fitness:.2f} < ${current_fitness:.2f}")
+                selection = "PARENT WINS"
+
+            # Track best ever
+            if mutated_fitness > best_fitness:
+                best_fitness = mutated_fitness
+                best_strategy = mutated_strategy
+                best_generation = gen
+                print(f"🏆 NEW BEST! Fitness: ${best_fitness:.2f}")
+
+            population_history.append({
+                'generation': gen,
+                'strategy': mutated_strategy,
+                'fitness': mutated_fitness,
+                'survived': mutated_survived,
+                'parent': current_strategy,
+                'selection': selection
+            })
+
+        # Final summary
+        print(f"\n{'='*70}")
+        print(f"EVOLUTION COMPLETE")
+        print(f"{'='*70}")
+
+        survivors = [h for h in population_history if h['survived']]
+        print(f"\n📊 STATISTICS:")
+        print(f"   Total Generations: {generations + 1}")
+        print(f"   Survival Rate: {len(survivors)}/{len(population_history)} ({100*len(survivors)/len(population_history):.1f}%)")
+
+        print(f"\n🏆 BEST STRATEGY FOUND:")
+        print(f"   Generation: {best_generation}")
+        print(f"   Fitness: ${best_fitness:.2f}")
+        print(f"   Strategy: {best_strategy}")
+
+        print(f"\n📈 FITNESS PROGRESSION:")
+        for h in population_history[-10:]:  # Show last 10
+            status = "✓" if h['survived'] else "✗"
+            selection = f" [{h.get('selection', 'INITIAL')}]" if 'selection' in h else ""
+            print(f"   Gen {h['generation']:2d}: {status} ${h['fitness']:8.2f}{selection}")
+
+        # Save summary
+        summary_file = results_dir / "evolution_summary.txt"
+        with open(summary_file, 'w') as f:
+            f.write(f"Evolution Summary\n")
+            f.write(f"{'='*50}\n\n")
+            f.write(f"Generations: {generations + 1}\n")
+            f.write(f"Survival Rate: {100*len(survivors)/len(population_history):.1f}%\n\n")
+            f.write(f"Best Strategy (Gen {best_generation}):\n")
+            f.write(f"  Fitness: ${best_fitness:.2f}\n")
+            f.write(f"  Strategy: {best_strategy}\n\n")
+            f.write(f"Full History:\n")
+            for h in population_history:
+                f.write(f"  Gen {h['generation']}: ${h['fitness']:.2f} - {h['strategy']}\n")
+
+        print(f"\n✓ Results saved to: {results_dir}")
+        print(f"✓ Summary: {summary_file}")
+
     except Exception as e:
         print(f"\n❌ Error: {e}")
         import traceback
@@ -918,6 +1124,28 @@ async def main():
         help="Maximum cost in USD before execution is cancelled",
     )
 
+    # Trading evolve mode - pure DSL mutation evolution (no LLM after Gen 0)
+    evolve_parser = subparsers.add_parser("trading-evolve", help="Evolve strategies through pure DSL mutation (FREE)")
+    evolve_parser.add_argument(
+        "--generations",
+        "-g",
+        type=int,
+        default=10,
+        help="Number of generations to evolve (default: 10)",
+    )
+    evolve_parser.add_argument(
+        "--workdir",
+        type=str,
+        default=Path.home() / "workdir",
+        help="Working directory for evolution results",
+    )
+    evolve_parser.add_argument(
+        "--initial-strategy",
+        type=str,
+        default=None,
+        help="Starting strategy (if None, generates random)",
+    )
+
     # For backward compatibility, also accept args without subcommand
     parser.add_argument(
         "--workdir",
@@ -986,6 +1214,15 @@ async def main():
                 logdir=Path(args.logdir) if args.logdir else None,
                 server_enabled=args.server,
                 cost_threshold=args.cost_threshold,
+            )
+            return
+
+        elif args.mode == "trading-evolve":
+            # Pure DSL mutation evolution (FREE after Gen 0)
+            await run_trading_evolve(
+                generations=args.generations,
+                workdir=Path(args.workdir),
+                initial_strategy=args.initial_strategy,
             )
             return
             
