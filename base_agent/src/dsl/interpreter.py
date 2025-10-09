@@ -5,7 +5,7 @@ from collections import Counter
 from .grammar import (
     Indicator, Operator, Action, Condition, Rule, DslProgram, AggregationMode,
     ArithmeticOp, IndicatorValue, BinaryOp, FunctionCall, AggregationFunc, Expression,
-    CompoundCondition, LogicalOp, ConditionType
+    CompoundCondition, LogicalOp, ConditionType, Timeframe
 )
 
 class DslInterpreter:
@@ -122,21 +122,40 @@ class DslInterpreter:
         self,
         indicator: Indicator,
         param: int,
-        market_data: pd.DataFrame,
-        current_index: int
+        market_data: pd.DataFrame | dict,
+        current_index: int,
+        timeframe: Timeframe = Timeframe.DEFAULT
     ) -> float:
         """
-        Get indicator value with lookback.
+        Get indicator value with lookback and optional timeframe.
 
         Args:
             indicator: The abstract symbol (ALPHA, BETA, etc.)
             param: Lookback period (0 = current, N = N candles ago)
-            market_data: Full DataFrame with OHLCV data
+            market_data: DataFrame (single timeframe) or dict of DataFrames (multi-timeframe)
             current_index: Current row index
+            timeframe: Specific timeframe to use (DSL V2 Phase 4)
 
         Returns:
             Float value from the appropriate column and lookback offset
         """
+        # Select the appropriate DataFrame based on timeframe
+        if isinstance(market_data, dict):
+            # Multi-timeframe mode
+            if timeframe == Timeframe.DEFAULT or timeframe.value is None:
+                # Use first available timeframe as default
+                tf_key = list(market_data.keys())[0]
+            else:
+                tf_key = timeframe.value
+
+            if tf_key not in market_data:
+                raise ValueError(f"Timeframe {tf_key} not found in market data")
+
+            df = market_data[tf_key]
+        else:
+            # Single timeframe mode (backward compatible)
+            df = market_data
+
         # Calculate lookback index
         lookback_index = current_index - param
 
@@ -148,15 +167,16 @@ class DslInterpreter:
         column = self.SYMBOL_TO_COLUMN[indicator]
 
         # Return the value
-        return float(market_data.iloc[lookback_index][column])
+        return float(df.iloc[lookback_index][column])
 
     def _evaluate_aggregation(
         self,
         func: AggregationFunc,
         indicator: Indicator,
         window: int,
-        market_data: pd.DataFrame,
-        current_index: int
+        market_data: pd.DataFrame | dict,
+        current_index: int,
+        timeframe: Timeframe = Timeframe.DEFAULT
     ) -> float:
         """
         Evaluate an aggregation function over a window of indicator values.
@@ -165,16 +185,34 @@ class DslInterpreter:
             func: Aggregation function (AVG, SUM, MAX, MIN, STD)
             indicator: The indicator to aggregate (ALPHA, BETA, etc.)
             window: Window size for aggregation
-            market_data: Full DataFrame with OHLCV data
+            market_data: DataFrame (single timeframe) or dict of DataFrames (multi-timeframe)
             current_index: Current row index
+            timeframe: Specific timeframe to use (DSL V2 Phase 4)
 
         Returns:
             Aggregated value
 
         Example:
             AVG(DELTA, 20) = average of last 20 close prices
-            MAX(BETA, 10) = maximum of last 10 high prices
+            AVG_1H(DELTA, 20) = average of last 20 1H close prices
         """
+        # Select the appropriate DataFrame based on timeframe
+        if isinstance(market_data, dict):
+            # Multi-timeframe mode
+            if timeframe == Timeframe.DEFAULT or timeframe.value is None:
+                # Use first available timeframe as default
+                tf_key = list(market_data.keys())[0]
+            else:
+                tf_key = timeframe.value
+
+            if tf_key not in market_data:
+                raise ValueError(f"Timeframe {tf_key} not found in market data")
+
+            df = market_data[tf_key]
+        else:
+            # Single timeframe mode (backward compatible)
+            df = market_data
+
         # Calculate window boundaries
         start_index = max(0, current_index - window + 1)
         end_index = current_index + 1  # +1 because slice is exclusive
@@ -183,7 +221,7 @@ class DslInterpreter:
         column = self.SYMBOL_TO_COLUMN[indicator]
 
         # Extract the window of values
-        window_data = market_data.iloc[start_index:end_index][column].values
+        window_data = df.iloc[start_index:end_index][column].values
 
         # Handle empty window
         if len(window_data) == 0:
@@ -206,7 +244,7 @@ class DslInterpreter:
     def _evaluate_expression(
         self,
         expression: Expression,
-        market_data: pd.DataFrame,
+        market_data: pd.DataFrame | dict,
         current_index: int
     ) -> float:
         """
@@ -214,7 +252,7 @@ class DslInterpreter:
 
         Args:
             expression: IndicatorValue, BinaryOp, or FunctionCall
-            market_data: Full DataFrame with OHLCV data
+            market_data: DataFrame (single timeframe) or dict of DataFrames (multi-timeframe)
             current_index: Current row index
 
         Returns:
@@ -226,7 +264,8 @@ class DslInterpreter:
                 expression.indicator,
                 expression.param,
                 market_data,
-                current_index
+                current_index,
+                expression.timeframe  # Pass timeframe (DSL V2 Phase 4)
             )
         elif isinstance(expression, BinaryOp):
             # Arithmetic operation - recursively evaluate left and right
@@ -254,7 +293,8 @@ class DslInterpreter:
                 expression.indicator,
                 expression.window,
                 market_data,
-                current_index
+                current_index,
+                expression.timeframe  # Pass timeframe (DSL V2 Phase 4)
             )
         else:
             raise TypeError(f"Unknown expression type: {type(expression)}")
@@ -295,13 +335,15 @@ class DslInterpreter:
                     condition.indicator1,
                     condition.param1,
                     market_data,
-                    current_index
+                    current_index,
+                    Timeframe.DEFAULT  # V1 always uses default timeframe
                 )
                 right_value = self._get_indicator_value(
                     condition.indicator2,
                     condition.param2,
                     market_data,
-                    current_index
+                    current_index,
+                    Timeframe.DEFAULT  # V1 always uses default timeframe
                 )
 
             # Apply comparison operator
@@ -397,16 +439,32 @@ class DslInterpreter:
     def _expression_to_string(self, expr: Expression) -> str:
         """Convert an expression to its string representation."""
         if isinstance(expr, IndicatorValue):
-            # Simple indicator
+            # Simple indicator with optional timeframe
             ind = expr.indicator.value
             param = f"({expr.param})" if expr.param else "()"
-            return f"{ind}{param}"
+
+            # Add timeframe suffix if specified (DSL V2 Phase 4)
+            if expr.timeframe != Timeframe.DEFAULT and expr.timeframe.value is not None:
+                timeframe_suffix = f"_{expr.timeframe.value}"
+            else:
+                timeframe_suffix = ""
+
+            return f"{ind}{timeframe_suffix}{param}"
+
         elif isinstance(expr, FunctionCall):
-            # Aggregation function
+            # Aggregation function with optional timeframe
             func = expr.func.value
             ind = expr.indicator.value
             window = expr.window
-            return f"{func}({ind}, {window})"
+
+            # Add timeframe suffix if specified (DSL V2 Phase 4)
+            if expr.timeframe != Timeframe.DEFAULT and expr.timeframe.value is not None:
+                timeframe_suffix = f"_{expr.timeframe.value}"
+            else:
+                timeframe_suffix = ""
+
+            return f"{func}{timeframe_suffix}({ind}, {window})"
+
         elif isinstance(expr, BinaryOp):
             # Arithmetic operation - recursively convert left and right
             left_str = self._expression_to_string(expr.left)

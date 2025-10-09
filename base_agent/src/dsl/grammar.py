@@ -46,11 +46,19 @@ class LogicalOp(Enum):
     OR = "OR"
     NOT = "NOT"
 
+class Timeframe(Enum):
+    """Timeframe for multi-timeframe strategies (DSL V2 Phase 4)."""
+    TF_1H = "1H"
+    TF_4H = "4H"
+    TF_1D = "1D"
+    DEFAULT = None  # Use default timeframe from context
+
 @dataclass
 class IndicatorValue:
-    """A single indicator with its parameter (e.g., DELTA(10))."""
+    """A single indicator with its parameter and optional timeframe (e.g., DELTA_1H(10))."""
     indicator: Indicator
     param: int
+    timeframe: Timeframe = Timeframe.DEFAULT  # DSL V2 Phase 4: Multi-timeframe support
 
 @dataclass
 class BinaryOp:
@@ -61,10 +69,11 @@ class BinaryOp:
 
 @dataclass
 class FunctionCall:
-    """Aggregation function call (e.g., AVG(DELTA, 20))."""
+    """Aggregation function call (e.g., AVG(DELTA, 20) or AVG_1H(DELTA, 20))."""
     func: AggregationFunc
     indicator: Indicator
     window: int  # Lookback period for aggregation
+    timeframe: Timeframe = Timeframe.DEFAULT  # DSL V2 Phase 4: Multi-timeframe support
 
 # Expression type can be an indicator, binary operation, or function call
 Expression = Union[IndicatorValue, BinaryOp, FunctionCall]

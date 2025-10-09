@@ -3,7 +3,7 @@ import copy
 from .grammar import (
     DslProgram, Operator, Rule, Indicator, Action, Condition,
     ArithmeticOp, IndicatorValue, BinaryOp, FunctionCall, AggregationFunc, Expression,
-    CompoundCondition, LogicalOp, ConditionType
+    CompoundCondition, LogicalOp, ConditionType, Timeframe
 )
 
 class DslMutator:
@@ -127,15 +127,16 @@ class DslMutator:
 
     def _mutate_expression(self, expr: Expression) -> Expression:
         """
-        Mutate an expression (V2-aware with aggregation functions).
+        Mutate an expression (V2-aware with aggregation functions and multi-timeframe).
         Can mutate simple indicators, arithmetic operations, or aggregation functions.
         """
         if isinstance(expr, IndicatorValue):
             # For simple indicators, randomly either:
-            # 1. Change the indicator
-            # 2. Change the parameter
-            # 3. Wrap in arithmetic operation (10% chance)
-            # 4. Convert to aggregation function (5% chance - DSL V2 Phase 2)
+            # 1. Change the indicator (40%)
+            # 2. Change the parameter (40%)
+            # 3. Change the timeframe (5% - DSL V2 Phase 4)
+            # 4. Wrap in arithmetic operation (10% chance)
+            # 5. Convert to aggregation function (5% chance - DSL V2 Phase 2)
 
             rand = random.random()
             if rand < 0.05:
@@ -143,8 +144,17 @@ class DslMutator:
                 func = random.choice(list(AggregationFunc))
                 window = random.choice([5, 10, 14, 20, 30, 50])
                 print(f"  - Converted to aggregation: {func.value}({expr.indicator.value}, {window})")
-                return FunctionCall(func=func, indicator=expr.indicator, window=window)
-            elif rand < 0.15:
+                return FunctionCall(func=func, indicator=expr.indicator, window=window, timeframe=expr.timeframe)
+            elif rand < 0.10:
+                # Change timeframe (DSL V2 Phase 4)
+                timeframes = [tf for tf in Timeframe if tf != expr.timeframe]
+                new_timeframe = random.choice(timeframes)
+                old_tf_str = expr.timeframe.value if expr.timeframe.value else "DEFAULT"
+                new_tf_str = new_timeframe.value if new_timeframe.value else "DEFAULT"
+                print(f"  - Changed timeframe: {old_tf_str} → {new_tf_str}")
+                expr.timeframe = new_timeframe
+                return expr
+            elif rand < 0.20:
                 # Wrap in arithmetic
                 print(f"  - Wrapped in arithmetic operation")
                 return self._wrap_in_arithmetic(expr)
@@ -165,14 +175,15 @@ class DslMutator:
             # 1. Change the function type (AVG → MAX, etc.)
             # 2. Change the indicator
             # 3. Change the window size
-            # 4. Convert back to simple indicator (5% chance)
+            # 4. Change the timeframe (5% - DSL V2 Phase 4)
+            # 5. Convert back to simple indicator (5% chance)
 
             if random.random() < 0.05:
                 # Convert back to simple indicator
                 print(f"  - Simplified aggregation to indicator")
-                return IndicatorValue(indicator=expr.indicator, param=0)
+                return IndicatorValue(indicator=expr.indicator, param=0, timeframe=expr.timeframe)
 
-            mutation_choice = random.choice(["function", "indicator", "window"])
+            mutation_choice = random.choice(["function", "indicator", "window", "timeframe"])
 
             if mutation_choice == "function":
                 new_func = random.choice([f for f in AggregationFunc if f != expr.func])
@@ -182,10 +193,17 @@ class DslMutator:
                 new_indicator = random.choice([ind for ind in Indicator if ind != expr.indicator])
                 print(f"  - Changed aggregation indicator: {expr.indicator.value} → {new_indicator.value}")
                 expr.indicator = new_indicator
-            else:  # window
+            elif mutation_choice == "window":
                 new_window = random.choice([5, 10, 14, 20, 30, 50, 100])
                 print(f"  - Changed aggregation window: {expr.window} → {new_window}")
                 expr.window = new_window
+            else:  # timeframe (DSL V2 Phase 4)
+                timeframes = [tf for tf in Timeframe if tf != expr.timeframe]
+                new_timeframe = random.choice(timeframes)
+                old_tf_str = expr.timeframe.value if expr.timeframe.value else "DEFAULT"
+                new_tf_str = new_timeframe.value if new_timeframe.value else "DEFAULT"
+                print(f"  - Changed aggregation timeframe: {old_tf_str} → {new_tf_str}")
+                expr.timeframe = new_timeframe
             return expr
 
         elif isinstance(expr, BinaryOp):
