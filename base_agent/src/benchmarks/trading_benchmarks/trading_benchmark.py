@@ -455,7 +455,8 @@ Now generate your next strategy in `answer.txt`:**"""
         log = f"Multi-timeframe backtest results:\n"
         for tf, phenotype in phenotypes.items():
             marker = "✓" if tf == best_timeframe else " "
-            log += f"{marker} {tf}: ${phenotype.total_profit:.2f} profit, {phenotype.total_trades} trades, {phenotype.win_rate:.1%} win rate\n"
+            win_rate_str = f"{phenotype.win_rate:.1%}" if phenotype.win_rate is not None else "N/A"
+            log += f"{marker} {tf}: ${phenotype.total_profit:.2f} profit, {phenotype.total_trades} trades, {win_rate_str} win rate\n"
         log += f"Best timeframe: {best_timeframe} with ${best_fitness:.2f} profit"
 
         return best_fitness, phenotypes, log

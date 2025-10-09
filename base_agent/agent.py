@@ -813,12 +813,20 @@ async def run_trading_evolve(
     workdir: Path,
     initial_strategy: str | None = None,
     fitness_goal: float = 200.0,  # Target fitness to achieve before early termination
+    lenient_cell_count: int = 100,  # Birth any survivor for first N cells (genetic diversity)
 ) -> None:
     """
-    Evolve trading strategies through pure DSL mutation.
+    Evolve trading strategies through pure DSL mutation with cell-based storage.
 
     No LLM usage after generation 0 - completely FREE!
     Uses fitness-based selection and mutation to evolve strategies.
+    Stores successful strategies as persistent "cells" (cell lines) with lineage tracking.
+
+    Cell Birth Philosophy:
+    - Offline evolution builds a genetic library (cell lines) for future LLM analysis
+    - Lenient phase (first lenient_cell_count cells): Birth any survivor for diversity
+    - Strict phase (after threshold): Only birth improvements (fitness > parent)
+    - Even "losing" cells have value - LLM can analyze failure patterns
 
     Termination conditions:
     - Reaches fitness_goal (early success)
@@ -826,7 +834,7 @@ async def run_trading_evolve(
     - No improvement for 20 consecutive generations (stagnation)
     """
     print("\n" + "="*70)
-    print("TRADING STRATEGY EVOLUTION MODE")
+    print("TRADING STRATEGY EVOLUTION MODE (Cell-Based)")
     print("="*70)
     print(f"\nEvolving strategies for up to {generations} generations using pure mutation.")
     print(f"🎯 Goal: Achieve fitness of ${fitness_goal:.2f}")
@@ -836,6 +844,8 @@ async def run_trading_evolve(
         from .src.benchmarks.trading_benchmarks.trading_benchmark import TradingBenchmark
         from .src.dsl.interpreter import DslInterpreter
         from .src.dsl.mutator import DslMutator
+        from .src.storage.cell_repository import CellRepository
+        from .src.data.hyperliquid_fetcher import HyperliquidDataFetcher
         import random
 
         benchmark = TradingBenchmark()
@@ -848,8 +858,34 @@ async def run_trading_evolve(
         results_dir = workdir / "evolution"
         results_dir.mkdir(parents=True, exist_ok=True)
 
-        # Track all generations
+        # Initialize cell repository
+        db_path = results_dir / "cells.db"
+        repo = CellRepository(db_path)
+        print(f"📊 Cell database initialized: {db_path}")
+
+        # Start evolution run tracking
+        run_id = repo.start_evolution_run(
+            run_type='evolution',
+            max_generations=generations,
+            fitness_goal=fitness_goal,
+            symbol='PURR',
+            timeframe='1h',
+            initial_capital=100.0,
+            transaction_fee_rate=0.00045,
+        )
+        print(f"🧬 Evolution run #{run_id} started")
+
+        # Fetch multi-timeframe data for testing
+        print(f"\n📈 Fetching multi-timeframe market data...")
+        fetcher = HyperliquidDataFetcher()
+        multi_tf_data = fetcher.fetch_multi_timeframe('PURR', lookback_days=30)
+
+        # Track all generations (for logging only, not persistence)
         population_history = []
+
+        # Track cell statistics
+        cells_birthed = 0
+        mutations_failed = 0
 
         # Generation 0: Initial strategy
         print(f"{'='*70}")
@@ -887,30 +923,66 @@ async def run_trading_evolve(
         answer_file = gen0_dir / "answer.txt"
         answer_file.write_text(current_strategy)
 
-        print(f"\n⚙️  Testing generation 0...")
-        score, error, discussion = await benchmark.score_problem(
-            base_problem,
-            str(gen0_dir),
-            str(gen0_dir),
-            "evolve_container"
+        print(f"\n⚙️  Testing generation 0 on multi-timeframe data...")
+
+        # Parse the strategy for multi-timeframe testing
+        program = interpreter.parse(current_strategy)
+        if not program:
+            print(f"❌ Failed to parse initial strategy: {current_strategy}")
+            return
+
+        # Test on all timeframes
+        fitness, phenotypes, backtest_log = benchmark.run_multi_timeframe_backtest(
+            program, multi_tf_data, 'PURR'
         )
 
-        current_fitness = score
-        survived = score > 0
+        current_fitness = fitness
+        # Check if strategy survived trading on ANY timeframe (portfolio didn't go to zero)
+        # Even negative fitness cells are valuable for genetic diversity
+        any_timeframe_completed = any(p.total_profit > -100.0 for p in phenotypes.values())  # Didn't blow up entire $100 capital
+        survived = any_timeframe_completed
         status = "✓ SURVIVED" if survived else "✗ DIED"
         print(f"\n{status} - Fitness: ${current_fitness:.2f}")
+        print(f"{backtest_log}")
+
+        # Birth Gen 0 cell if it survived trading (didn't blow up portfolio)
+        # Note: We're building cell lines for LLM analysis, not live trading
+        # Even negative fitness is valuable data!
+        current_cell_id = None
+        if survived:
+            current_cell_id = repo.birth_cell(
+                generation=0,
+                parent_cell_id=None,
+                dsl_genome=current_strategy,
+                fitness=current_fitness,
+                status='online',
+            )
+            cells_birthed += 1
+
+            # Store phenotypes for each timeframe
+            for tf, phenotype in phenotypes.items():
+                phenotype.cell_id = current_cell_id
+                repo.store_phenotype(phenotype)
+
+            print(f"🧬 Cell #{current_cell_id} birthed (Gen 0, fitness: ${current_fitness:.2f})")
+        else:
+            print(f"💀 Gen 0 catastrophically failed in trading (portfolio went to zero)")
+            print(f"   Cannot continue evolution without a starting cell")
+            mutations_failed += 1
 
         population_history.append({
             'generation': 0,
             'strategy': current_strategy,
             'fitness': current_fitness,
             'survived': survived,
-            'parent': None
+            'parent': None,
+            'cell_id': current_cell_id,
         })
 
         best_fitness = current_fitness
         best_strategy = current_strategy
         best_generation = 0
+        best_cell_id = current_cell_id
         generations_without_improvement = 0
 
         # Check if Gen 0 already met the goal
@@ -929,47 +1001,102 @@ async def run_trading_evolve(
             print(f"GENERATION {gen}: Mutation & Selection")
             print(f"{'='*70}")
 
-            # Parse current strategy
-            program = interpreter.parse(current_strategy)
+            # Get best cell as parent (use database query)
+            best_cells = repo.get_top_cells(limit=1, status='online')
+            if not best_cells:
+                print(f"❌ No surviving cells found - cannot continue evolution")
+                break
+
+            parent_cell = best_cells[0]
+            program = interpreter.parse(parent_cell.dsl_genome)
             if not program:
-                print(f"❌ Failed to parse strategy, generating new random one")
-                # Fallback: generate new random strategy
+                print(f"❌ Failed to parse parent strategy")
                 continue
 
             # Mutate
-            print(f"Parent: {current_strategy}")
+            print(f"Parent (Cell #{parent_cell.cell_id}): {parent_cell.dsl_genome}")
             mutated_program = mutator.mutate(program)
             mutated_strategy = mutator.to_string(mutated_program)
             print(f"Child:  {mutated_strategy}")
 
-            # Setup and test mutant
+            # Setup and test mutant (save to gen_dir for logging)
             gen_dir = results_dir / f"gen_{gen}"
             gen_dir.mkdir(parents=True, exist_ok=True)
-
-            await benchmark.setup_problem(base_problem, gen_dir, "evolve_container")
-
             answer_file = gen_dir / "answer.txt"
             answer_file.write_text(mutated_strategy)
 
-            print(f"\n⚙️  Testing generation {gen}...")
-            score, error, discussion = await benchmark.score_problem(
-                base_problem,
-                str(gen_dir),
-                str(gen_dir),
-                "evolve_container"
+            print(f"\n⚙️  Testing generation {gen} on multi-timeframe data...")
+
+            # Test on all timeframes
+            mutated_fitness, phenotypes, backtest_log = benchmark.run_multi_timeframe_backtest(
+                mutated_program, multi_tf_data, 'PURR'
             )
+            # Check if strategy survived trading (didn't blow up entire portfolio)
+            mutated_survived = any(p.total_profit > -100.0 for p in phenotypes.values())
 
-            mutated_fitness = score
-            mutated_survived = score > 0
+            print(f"{backtest_log}")
 
-            # Selection: Keep better strategy
-            if mutated_fitness > current_fitness:
-                print(f"\n✓ IMPROVEMENT! ${current_fitness:.2f} → ${mutated_fitness:.2f}")
+            # Determine if we're in lenient mode (building genetic diversity)
+            lenient_mode = cells_birthed < lenient_cell_count
+
+            # Selection and cell birth
+            is_improvement = mutated_fitness > parent_cell.fitness
+
+            if is_improvement:
+                print(f"\n✓ IMPROVEMENT! ${parent_cell.fitness:.2f} → ${mutated_fitness:.2f}")
+                should_birth = True
+                birth_reason = "improvement"
+            elif lenient_mode and mutated_survived:
+                print(f"\n→ No improvement (${mutated_fitness:.2f} <= ${parent_cell.fitness:.2f})")
+                print(f"   But in LENIENT mode ({cells_birthed}/{lenient_cell_count} cells) - birthing for genetic diversity")
+                should_birth = True
+                birth_reason = "lenient_diversity"
+            else:
+                print(f"\n→ No improvement. ${mutated_fitness:.2f} <= ${parent_cell.fitness:.2f}")
+                should_birth = False
+                birth_reason = None
+
+            if should_birth:
+                # Birth child cell
+                child_cell_id = repo.birth_cell(
+                    generation=gen,
+                    parent_cell_id=parent_cell.cell_id,
+                    dsl_genome=mutated_strategy,
+                    fitness=mutated_fitness,
+                    status='online',
+                )
+                cells_birthed += 1
+
+                # Store phenotypes for each timeframe
+                for tf, phenotype in phenotypes.items():
+                    phenotype.cell_id = child_cell_id
+                    repo.store_phenotype(phenotype)
+
+                phase = "lenient" if birth_reason == "lenient_diversity" else "strict"
+                print(f"🧬 Cell #{child_cell_id} birthed (Gen {gen}, parent: #{parent_cell.cell_id}, {phase} mode)")
+
                 current_strategy = mutated_strategy
                 current_fitness = mutated_fitness
+                current_cell_id = child_cell_id
                 selection = "CHILD WINS"
             else:
-                print(f"\n→ No improvement. ${mutated_fitness:.2f} < ${current_fitness:.2f}")
+                # Record failed mutation
+                failure_reason = 'negative_fitness' if mutated_fitness < 0 else 'lower_than_parent'
+                repo.record_failed_mutation(
+                    parent_cell_id=parent_cell.cell_id,
+                    attempted_genome=mutated_strategy,
+                    generation=gen,
+                    failure_reason=failure_reason,
+                    fitness_achieved=mutated_fitness,
+                )
+                mutations_failed += 1
+
+                print(f"💀 Mutation failed - recorded statistics (reason: {failure_reason})")
+
+                # Keep parent
+                current_strategy = parent_cell.dsl_genome
+                current_fitness = parent_cell.fitness
+                current_cell_id = parent_cell.cell_id
                 selection = "PARENT WINS"
 
             # Track best ever
@@ -977,6 +1104,7 @@ async def run_trading_evolve(
                 best_fitness = mutated_fitness
                 best_strategy = mutated_strategy
                 best_generation = gen
+                best_cell_id = current_cell_id
                 generations_without_improvement = 0
                 print(f"🏆 NEW BEST! Fitness: ${best_fitness:.2f}")
 
@@ -989,6 +1117,7 @@ async def run_trading_evolve(
                 if best_fitness >= fitness_goal:
                     print(f"\n🎯 GOAL ACHIEVED! Fitness: ${best_fitness:.2f} >= ${fitness_goal:.2f}")
                     print(f"Terminating early at generation {gen}")
+                    termination_reason = "fitness_goal_reached"
                     break
             else:
                 generations_without_improvement += 1
@@ -998,15 +1127,34 @@ async def run_trading_evolve(
                 'strategy': mutated_strategy,
                 'fitness': mutated_fitness,
                 'survived': mutated_survived,
-                'parent': current_strategy,
-                'selection': selection
+                'parent': parent_cell.dsl_genome,
+                'selection': selection,
+                'cell_id': current_cell_id if selection == "CHILD WINS" else None,
             })
 
             # Check for stagnation (no improvement for 20 generations)
             if generations_without_improvement >= 20:
                 print(f"\n⚠️  STAGNATION DETECTED: No improvement for 20 generations")
                 print(f"Terminating early at generation {gen}")
+                termination_reason = "stagnation"
                 break
+
+        # Set termination reason if not already set
+        if 'termination_reason' not in locals():
+            termination_reason = "max_generations_reached"
+
+        # Complete evolution run in database
+        if best_cell_id:
+            repo.complete_evolution_run(
+                run_id=run_id,
+                best_cell_id=best_cell_id,
+                total_cells_birthed=cells_birthed,
+                total_mutations_failed=mutations_failed,
+                final_best_fitness=best_fitness,
+                termination_reason=termination_reason,
+                generations_without_improvement=generations_without_improvement,
+            )
+            print(f"\n✅ Evolution run #{run_id} completed and saved to database")
 
         # Final summary
         print(f"\n{'='*70}")
@@ -1015,36 +1163,66 @@ async def run_trading_evolve(
 
         survivors = [h for h in population_history if h['survived']]
         print(f"\n📊 STATISTICS:")
-        print(f"   Total Generations: {generations + 1}")
+        print(f"   Total Generations: {len(population_history)}")
+        print(f"   Cells Birthed: {cells_birthed}")
+        print(f"   Mutations Failed: {mutations_failed}")
+        print(f"   Success Rate: {cells_birthed}/{cells_birthed + mutations_failed} ({100*cells_birthed/(cells_birthed + mutations_failed) if (cells_birthed + mutations_failed) > 0 else 0:.1f}%)")
         print(f"   Survival Rate: {len(survivors)}/{len(population_history)} ({100*len(survivors)/len(population_history):.1f}%)")
+        print(f"   Lenient Threshold: {lenient_cell_count} cells")
+        print(f"   Mode at End: {'LENIENT (genetic diversity)' if cells_birthed < lenient_cell_count else 'STRICT (improvements only)'}")
+        print(f"   Termination Reason: {termination_reason}")
 
         print(f"\n🏆 BEST STRATEGY FOUND:")
         print(f"   Generation: {best_generation}")
         print(f"   Fitness: ${best_fitness:.2f}")
         print(f"   Strategy: {best_strategy}")
+        if best_cell_id:
+            print(f"   Cell ID: #{best_cell_id}")
+
+        # Query and display lineage of best cell
+        if best_cell_id:
+            print(f"\n🧬 LINEAGE OF BEST CELL:")
+            lineage = repo.get_lineage(best_cell_id)
+            for i, cell in enumerate(lineage):
+                indent = "  " * i
+                arrow = "└─" if i > 0 else "──"
+                print(f"{indent}{arrow} Cell #{cell.cell_id} (Gen {cell.generation}): ${cell.fitness:.2f}")
+                if i < len(lineage) - 1:
+                    print(f"{indent}   ↓")
 
         print(f"\n📈 FITNESS PROGRESSION:")
         for h in population_history[-10:]:  # Show last 10
             status = "✓" if h['survived'] else "✗"
             selection = f" [{h.get('selection', 'INITIAL')}]" if 'selection' in h else ""
-            print(f"   Gen {h['generation']:2d}: {status} ${h['fitness']:8.2f}{selection}")
+            cell_info = f" (Cell #{h['cell_id']})" if h.get('cell_id') else ""
+            print(f"   Gen {h['generation']:2d}: {status} ${h['fitness']:8.2f}{selection}{cell_info}")
 
         # Save summary
         summary_file = results_dir / "evolution_summary.txt"
         with open(summary_file, 'w') as f:
             f.write(f"Evolution Summary\n")
             f.write(f"{'='*50}\n\n")
-            f.write(f"Generations: {generations + 1}\n")
-            f.write(f"Survival Rate: {100*len(survivors)/len(population_history):.1f}%\n\n")
+            f.write(f"Generations: {len(population_history)}\n")
+            f.write(f"Cells Birthed: {cells_birthed}\n")
+            f.write(f"Mutations Failed: {mutations_failed}\n")
+            f.write(f"Success Rate: {100*cells_birthed/(cells_birthed + mutations_failed) if (cells_birthed + mutations_failed) > 0 else 0:.1f}%\n")
+            f.write(f"Survival Rate: {100*len(survivors)/len(population_history):.1f}%\n")
+            f.write(f"Termination Reason: {termination_reason}\n\n")
             f.write(f"Best Strategy (Gen {best_generation}):\n")
             f.write(f"  Fitness: ${best_fitness:.2f}\n")
-            f.write(f"  Strategy: {best_strategy}\n\n")
-            f.write(f"Full History:\n")
+            f.write(f"  Strategy: {best_strategy}\n")
+            if best_cell_id:
+                f.write(f"  Cell ID: #{best_cell_id}\n")
+            f.write(f"\nFull History:\n")
             for h in population_history:
-                f.write(f"  Gen {h['generation']}: ${h['fitness']:.2f} - {h['strategy']}\n")
+                cell_info = f" (Cell #{h['cell_id']})" if h.get('cell_id') else ""
+                f.write(f"  Gen {h['generation']}: ${h['fitness']:.2f} - {h['strategy']}{cell_info}\n")
 
         print(f"\n✓ Results saved to: {results_dir}")
         print(f"✓ Summary: {summary_file}")
+        print(f"✓ Database: {db_path}")
+        print(f"\n📊 Query cells: sqlite3 {db_path} 'SELECT cell_id, generation, fitness, status FROM cells ORDER BY fitness DESC LIMIT 10;'")
+        print(f"📊 View lineage: sqlite3 {db_path} 'SELECT * FROM cells WHERE cell_id IN (SELECT cell_id FROM cells UNION SELECT parent_cell_id FROM cells WHERE cell_id={best_cell_id if best_cell_id else 1});'")
 
     except Exception as e:
         print(f"\n❌ Error: {e}")
