@@ -620,9 +620,11 @@ async def run_trading_learn(
     print(f"\n🧠 LLM will analyze cells and propose {iterations} intelligent mutations.")
     print("💡 Requires cell database from prior trading-evolve run.\n")
 
-    # Start web server if enabled
+    # Start web server if enabled AND not already running
+    # When called from web API, server is already running
     web_server_task = None
-    if server_enabled:
+    start_new_server = server_enabled and not hasattr(EventBus, '_instance')
+    if start_new_server:
         print(f"🌐 Starting web visualization server on http://localhost:8080")
         web_server_task = asyncio.create_task(run_server())
 
@@ -637,10 +639,11 @@ async def run_trading_learn(
             propose_intelligent_mutation,
         )
 
-        # Initialize EventBus for web UI updates
+        # Initialize EventBus for web UI updates (always get instance if server enabled)
         event_bus = await EventBus.get_instance() if server_enabled else None
 
         # Create root callgraph node for learn run (enables web UI event display)
+        # Always create callgraph if server_enabled, even if server already running
         callgraph = None
         if server_enabled:
             callgraph = await CallGraphManager.get_instance()

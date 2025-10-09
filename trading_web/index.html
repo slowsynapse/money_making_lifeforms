@@ -92,6 +92,28 @@
         .diff-unchanged {
             color: #6b7280;
         }
+        /* Fullscreen mode for activity terminal */
+        #activity-terminal:fullscreen {
+            max-height: 100vh !important;
+            display: flex;
+            flex-direction: column;
+        }
+        #activity-terminal:fullscreen #activity-log {
+            max-height: none !important;
+            flex: 1;
+            height: calc(100vh - 60px) !important;
+        }
+        /* Safari fullscreen */
+        #activity-terminal:-webkit-full-screen {
+            max-height: 100vh !important;
+            display: flex;
+            flex-direction: column;
+        }
+        #activity-terminal:-webkit-full-screen #activity-log {
+            max-height: none !important;
+            flex: 1;
+            height: calc(100vh - 60px) !important;
+        }
     </style>
 </head>
 <body class="bg-gray-50">
@@ -118,9 +140,14 @@
                             <div id="avg-fitness" class="text-2xl font-bold text-blue-600">--</div>
                         </div>
                     </div>
-                    <button id="llm-learn-btn" class="px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition-colors">
-                        🤖 LLM Learn
-                    </button>
+                    <div class="flex gap-2">
+                        <button id="run-btn" class="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors">
+                            ▶ Run
+                        </button>
+                        <button id="stop-btn" class="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors opacity-50 cursor-not-allowed" disabled>
+                            ■ Stop
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -187,13 +214,16 @@
             <!-- Right Column: Cell Details & Fitness Chart -->
             <div class="lg:col-span-1">
                 <!-- Activity Log / Terminal -->
-                <div class="bg-gray-900 rounded-lg shadow mb-6" style="max-height: 300px;">
+                <div id="activity-terminal" class="bg-gray-900 rounded-lg shadow mb-6" style="max-height: 300px;">
                     <div class="px-4 py-3 border-b border-gray-700 flex justify-between items-center">
                         <div class="flex items-center gap-2">
-                            <div class="w-3 h-3 rounded-full bg-green-500"></div>
-                            <h2 class="text-sm font-semibold text-gray-100">System Activity</h2>
+                            <div id="activity-status-dot" class="w-3 h-3 rounded-full bg-gray-500"></div>
+                            <h2 class="text-sm font-semibold text-gray-100">Trading-Learn Output</h2>
                         </div>
-                        <button id="clear-log" class="text-xs text-gray-400 hover:text-gray-200">Clear</button>
+                        <div class="flex gap-2">
+                            <button id="fullscreen-log" class="text-xs text-gray-400 hover:text-gray-200">↗ Open Window</button>
+                            <button id="clear-log" class="text-xs text-gray-400 hover:text-gray-200">Clear</button>
+                        </div>
                     </div>
                     <div id="activity-log" class="p-3 overflow-y-auto font-mono text-xs text-green-400" style="max-height: 250px; background: #0d1117;">
                         <div class="text-gray-500">Waiting for activity...</div>
@@ -259,7 +289,7 @@
                     <p class="text-xs text-gray-500 mt-1">Minimum confidence level for new strategies (0.1-2.0)</p>
                 </div>
                 <div class="flex items-center">
-                    <input type="checkbox" id="use-local-llm" class="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500">
+                    <input type="checkbox" id="use-local-llm" checked class="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500">
                     <label for="use-local-llm" class="ml-2 text-sm text-gray-700">
                         Use local LLM (Ollama)
                     </label>

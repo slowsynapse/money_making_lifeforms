@@ -2,3 +2,4 @@
 - documentation is stored at cursor_docs folder
 - Implementation tasklist is stored in IMPLEMENTATION_TODO inside cursor_docs
 - always test with 100 generations
+- remember to restart server to flush old code (this project runs on a docker container)

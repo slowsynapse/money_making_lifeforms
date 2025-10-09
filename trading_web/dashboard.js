@@ -63,23 +63,26 @@ function updateActivityLog() {
 // Setup activity monitoring
 function setupActivityMonitoring() {
     // Monitor API calls via fetch wrapper
-    const originalFetch = window.fetch;
+    window.originalFetch = window.fetch;
     window.fetch = async function(...args) {
         const url = args[0];
         const options = args[1] || {};
 
-        // Log API calls
-        if (url.includes(API_BASE)) {
+        // Skip logging for output polling
+        const skipLogging = isPollingActive && url.includes('/learn/output');
+
+        // Log API calls (except output polling)
+        if (url.includes(API_BASE) && !skipLogging) {
             const method = options.method || 'GET';
             const endpoint = url.replace(API_BASE, '');
             logActivity('api', `${method} ${endpoint}`);
         }
 
         try {
-            const response = await originalFetch.apply(this, args);
+            const response = await window.originalFetch.apply(this, args);
 
-            // Log response status
-            if (url.includes(API_BASE)) {
+            // Log response status (except output polling)
+            if (url.includes(API_BASE) && !skipLogging) {
                 const endpoint = url.replace(API_BASE, '');
                 if (response.ok) {
                     logActivity('success', `✓ ${endpoint} (${response.status})`);
@@ -90,7 +93,7 @@ function setupActivityMonitoring() {
 
             return response;
         } catch (error) {
-            if (url.includes(API_BASE)) {
+            if (url.includes(API_BASE) && !skipLogging) {
                 logActivity('error', `✗ Request failed: ${error.message}`);
             }
             throw error;
@@ -404,80 +407,72 @@ function setupEventListeners() {
         }
     });
 
-    // LLM Learn button
-    document.getElementById('llm-learn-btn').addEventListener('click', () => {
-        document.getElementById('llm-modal').classList.remove('hidden');
-    });
-
-    // Modal cancel
-    document.getElementById('modal-cancel').addEventListener('click', () => {
-        document.getElementById('llm-modal').classList.add('hidden');
-    });
-
-    // Modal start learning
-    document.getElementById('modal-start').addEventListener('click', async () => {
-        const numStrategies = parseInt(document.getElementById('num-strategies').value);
-        const confidence = parseFloat(document.getElementById('confidence').value);
-        const useLocal = document.getElementById('use-local-llm').checked;
-
-        // Close modal
-        document.getElementById('llm-modal').classList.add('hidden');
-
-        // Log activity
-        logActivity('llm', `Starting learning session: ${numStrategies} strategies, confidence ${confidence}`);
-
-        // Show status panel
-        const statusPanel = document.getElementById('learning-status');
-        statusPanel.classList.remove('hidden');
-        document.getElementById('learning-message').textContent =
-            `Creating ${numStrategies} new strategies using ${useLocal ? 'local' : 'cloud'} LLM...`;
-
+    // Run button - Start trading-learn
+    document.getElementById('run-btn').addEventListener('click', async () => {
         try {
-            // Call the API to start learning
-            const response = await fetch(`${API_BASE}/llm/learn/start`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    num_strategies: numStrategies,
-                    confidence: confidence,
-                    use_local: useLocal
-                })
+            logActivity('system', 'Starting trading-learn (100 iterations, local LLM)...');
+
+            const response = await fetch(`${API_BASE}/learn/run`, {
+                method: 'POST'
             });
 
             const result = await response.json();
-            console.log('Learning session started:', result);
 
-            logActivity('llm', `Learning session configured: ${result.message}`);
+            if (result.status === 'success') {
+                logActivity('success', `✓ ${result.message} (PID: ${result.pid})`);
 
-            // Update status
-            document.getElementById('learning-message').textContent =
-                `Learning session started! New strategies will appear shortly.`;
+                // Update button states
+                document.getElementById('run-btn').disabled = true;
+                document.getElementById('run-btn').classList.add('opacity-50', 'cursor-not-allowed');
+                document.getElementById('stop-btn').disabled = false;
+                document.getElementById('stop-btn').classList.remove('opacity-50', 'cursor-not-allowed');
 
-            // Refresh cells periodically
-            setTimeout(() => {
-                logActivity('system', 'Refreshing cells (5s)...');
-                loadCells(currentFilter);
-            }, 5000);
-            setTimeout(() => {
-                logActivity('system', 'Refreshing cells (15s)...');
-                loadCells(currentFilter);
-            }, 15000);
-            setTimeout(() => {
-                logActivity('system', 'Refreshing cells (30s)...');
-                loadCells(currentFilter);
-            }, 30000);
+                // Update status dot to green
+                document.getElementById('activity-status-dot').classList.remove('bg-gray-500', 'bg-red-500');
+                document.getElementById('activity-status-dot').classList.add('bg-green-500');
 
+                // Start polling for output
+                startOutputPolling();
+            } else {
+                logActivity('error', `✗ ${result.message}`);
+            }
         } catch (error) {
-            console.error('Failed to start learning:', error);
-            logActivity('error', `Failed to start learning: ${error.message}`);
-            document.getElementById('learning-message').textContent =
-                `Error: ${error.message}`;
+            logActivity('error', `✗ Failed to start: ${error.message}`);
         }
     });
 
-    // Status panel close
-    document.getElementById('status-close').addEventListener('click', () => {
-        document.getElementById('learning-status').classList.add('hidden');
+    // Stop button - Stop trading-learn
+    document.getElementById('stop-btn').addEventListener('click', async () => {
+        try {
+            logActivity('system', 'Stopping trading-learn process...');
+
+            const response = await fetch(`${API_BASE}/learn/stop`, {
+                method: 'POST'
+            });
+
+            const result = await response.json();
+
+            if (result.status === 'success') {
+                logActivity('success', `✓ ${result.message}`);
+
+                // Update button states
+                document.getElementById('run-btn').disabled = false;
+                document.getElementById('run-btn').classList.remove('opacity-50', 'cursor-not-allowed');
+                document.getElementById('stop-btn').disabled = true;
+                document.getElementById('stop-btn').classList.add('opacity-50', 'cursor-not-allowed');
+
+                // Update status dot to gray
+                document.getElementById('activity-status-dot').classList.remove('bg-green-500');
+                document.getElementById('activity-status-dot').classList.add('bg-gray-500');
+
+                // Stop polling
+                stopOutputPolling();
+            } else {
+                logActivity('error', `✗ ${result.message}`);
+            }
+        } catch (error) {
+            logActivity('error', `✗ Failed to stop: ${error.message}`);
+        }
     });
 
     // Clear activity log
@@ -485,6 +480,91 @@ function setupEventListeners() {
         activityLog = [];
         updateActivityLog();
         logActivity('system', 'Log cleared');
+    });
+
+    // Open activity log in new window
+    document.getElementById('fullscreen-log').addEventListener('click', () => {
+        const logContent = document.getElementById('activity-log').innerHTML;
+        const newWindow = window.open('', 'Trading-Learn Output', 'width=1200,height=800');
+
+        newWindow.document.write(`
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Trading-Learn Output</title>
+                <script src="https://cdn.tailwindcss.com"></script>
+                <style>
+                    body {
+                        font-family: 'Courier New', monospace;
+                        background: #0d1117;
+                        color: #c9d1d9;
+                    }
+                </style>
+            </head>
+            <body class="p-6">
+                <div class="flex justify-between items-center mb-4 pb-4 border-b border-gray-700">
+                    <h1 class="text-2xl font-bold text-white">Trading-Learn Live Output</h1>
+                    <div class="flex items-center gap-3">
+                        <div id="status-indicator" class="flex items-center gap-2">
+                            <div class="w-3 h-3 rounded-full ${isPollingActive ? 'bg-green-500' : 'bg-gray-500'} animate-pulse"></div>
+                            <span class="text-sm">${isPollingActive ? 'Running' : 'Stopped'}</span>
+                        </div>
+                        <button onclick="window.close()" class="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700">
+                            Close
+                        </button>
+                    </div>
+                </div>
+                <div id="output-container" class="bg-gray-900 rounded-lg p-4 max-h-screen overflow-y-auto">
+                    ${logContent}
+                </div>
+                <script>
+                    // Auto-refresh output every 2 seconds
+                    setInterval(() => {
+                        fetch('${API_BASE}/learn/output?lines=100')
+                            .then(res => res.json())
+                            .then(data => {
+                                if (data.output) {
+                                    document.getElementById('output-container').innerHTML = formatOutput(data.output);
+                                    document.getElementById('output-container').scrollTop = document.getElementById('output-container').scrollHeight;
+                                }
+                            })
+                            .catch(err => console.error('Error fetching output:', err));
+                    }, 2000);
+
+                    function formatOutput(rawOutput) {
+                        const lines = rawOutput.split('\\n');
+                        return lines
+                            .filter(line => line.trim().length > 0)
+                            .map(line => {
+                                if (line.includes('✓') || line.includes('SUCCESS')) {
+                                    return '<div class="text-green-400 mb-1">✓ ' + escapeHtml(line.replace(/✓/g, '').trim()) + '</div>';
+                                } else if (line.includes('✗') || line.includes('ERROR') || line.includes('Failed')) {
+                                    return '<div class="text-red-400 mb-1">✗ ' + escapeHtml(line.replace(/✗/g, '').trim()) + '</div>';
+                                } else if (line.includes('Analyzing') || line.includes('Testing') || line.includes('Creating')) {
+                                    return '<div class="text-yellow-400 mb-1">⚙ ' + escapeHtml(line.trim()) + '</div>';
+                                } else if (line.includes('Cell') || line.includes('Strategy') || line.includes('Fitness')) {
+                                    return '<div class="text-blue-400 mb-1">📊 ' + escapeHtml(line.trim()) + '</div>';
+                                } else if (line.includes('Iteration') || line.includes('Phase')) {
+                                    return '<div class="text-purple-400 mb-1 font-semibold">' + escapeHtml(line.trim()) + '</div>';
+                                } else {
+                                    return '<div class="text-gray-400 mb-1">' + escapeHtml(line.trim()) + '</div>';
+                                }
+                            })
+                            .join('');
+                    }
+
+                    function escapeHtml(text) {
+                        const div = document.createElement('div');
+                        div.textContent = text;
+                        return div.innerHTML;
+                    }
+                </script>
+            </body>
+            </html>
+        `);
+        newWindow.document.close();
     });
 
     // Filter buttons
@@ -505,6 +585,66 @@ function setupEventListeners() {
         updateFilterButtons('filter-evolution');
         loadCells(false);
     });
+}
+
+// Output polling for trading-learn process
+let outputPollingInterval = null;
+let isPollingActive = false;
+
+function formatTradingLearnOutput(rawOutput) {
+    // Parse and format the output nicely
+    const lines = rawOutput.split('\n');
+    const formattedLines = lines
+        .filter(line => line.trim().length > 0)
+        .map(line => {
+            // Color code different types of messages
+            if (line.includes('✓') || line.includes('SUCCESS')) {
+                return `<div class="text-green-400 mb-1">✓ ${escapeHtml(line.replace(/✓/g, '').trim())}</div>`;
+            } else if (line.includes('✗') || line.includes('ERROR') || line.includes('Failed')) {
+                return `<div class="text-red-400 mb-1">✗ ${escapeHtml(line.replace(/✗/g, '').trim())}</div>`;
+            } else if (line.includes('Analyzing') || line.includes('Testing') || line.includes('Creating')) {
+                return `<div class="text-yellow-400 mb-1">⚙ ${escapeHtml(line.trim())}</div>`;
+            } else if (line.includes('Cell') || line.includes('Strategy') || line.includes('Fitness')) {
+                return `<div class="text-blue-400 mb-1">📊 ${escapeHtml(line.trim())}</div>`;
+            } else if (line.includes('Iteration') || line.includes('Phase')) {
+                return `<div class="text-purple-400 mb-1 font-semibold">${escapeHtml(line.trim())}</div>`;
+            } else {
+                return `<div class="text-gray-400 mb-1">${escapeHtml(line.trim())}</div>`;
+            }
+        })
+        .join('');
+
+    return formattedLines || '<div class="text-gray-500">Waiting for output...</div>';
+}
+
+function startOutputPolling() {
+    isPollingActive = true;
+
+    // Poll every 2 seconds for new output
+    outputPollingInterval = setInterval(async () => {
+        try {
+            // Use raw fetch to bypass API monitoring
+            const response = await window.originalFetch(`${API_BASE}/learn/output?lines=50`);
+            const data = await response.json();
+
+            if (data.output) {
+                const logEl = document.getElementById('activity-log');
+                logEl.innerHTML = formatTradingLearnOutput(data.output);
+                // Auto-scroll to bottom
+                logEl.scrollTop = logEl.scrollHeight;
+            }
+        } catch (error) {
+            console.error('Failed to fetch output:', error);
+        }
+    }, 2000);
+}
+
+function stopOutputPolling() {
+    isPollingActive = false;
+    if (outputPollingInterval) {
+        clearInterval(outputPollingInterval);
+        outputPollingInterval = null;
+    }
 }
 
 // Update filter button styles
@@ -529,5 +669,59 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+// WebSocket connection for real-time events
+let eventWebSocket = null;
+
+function connectEventWebSocket() {
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${wsProtocol}//${window.location.host}/ws/events`;
+
+    logActivity('system', `Connecting to event stream at ${wsUrl}...`);
+
+    eventWebSocket = new WebSocket(wsUrl);
+
+    eventWebSocket.onopen = () => {
+        logActivity('success', '✓ Connected to real-time event stream');
+    };
+
+    eventWebSocket.onmessage = (event) => {
+        try {
+            const eventData = JSON.parse(event.data);
+
+            // Map event types to log categories
+            const typeMap = {
+                'CELL_ANALYSIS_START': 'llm',
+                'CELL_ANALYSIS_PROGRESS': 'llm',
+                'PATTERN_DISCOVERED': 'llm',
+                'MUTATION_PROPOSED': 'llm',
+                'MUTATION_TESTED': 'evolution',
+                'CELL_BIRTHED': 'success',
+                'APPLICATION_WARNING': 'error',
+                'APPLICATION_ERROR': 'error'
+            };
+
+            const category = typeMap[eventData.type] || 'system';
+            const content = eventData.content || JSON.stringify(eventData);
+
+            logActivity(category, content);
+        } catch (err) {
+            console.error('Error processing WebSocket message:', err);
+        }
+    };
+
+    eventWebSocket.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        logActivity('error', '✗ Event stream connection error');
+    };
+
+    eventWebSocket.onclose = () => {
+        logActivity('system', 'Event stream disconnected. Reconnecting in 5s...');
+        setTimeout(connectEventWebSocket, 5000);
+    };
+}
+
 // Start the app
-document.addEventListener('DOMContentLoaded', init);
+document.addEventListener('DOMContentLoaded', () => {
+    init();
+    connectEventWebSocket();
+});

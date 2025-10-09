@@ -42,6 +42,18 @@ docker run --rm \
     --initial-strategy "IF DELTA(0) > DELTA(20) THEN BUY ELSE SELL"
 ```
 
+**With web visualization:**
+```bash
+mkdir -p results/evolution_viz
+docker run --rm -p 8080:8080 \
+  -v $(pwd)/base_agent:/home/agent/agent_code \
+  -v $(pwd)/benchmark_data:/home/agent/benchmark_data \
+  -v $(pwd)/results/evolution_viz:/home/agent/workdir \
+  sica_sandbox \
+  python -m agent_code.agent trading-evolve -g 100 -f 50.0 --server
+```
+Then open http://localhost:8080 in your browser to see real-time evolution visualization.
+
 **Background mode (long runs):**
 ```bash
 docker run --rm \
@@ -65,7 +77,7 @@ docker run --rm \
   -v $(pwd)/results/interactive_output:/home/agent/workdir \
   -e ANTHROPIC_API_KEY="your-api-key-here" \
   sica_sandbox \
-  python -m agent_code.agent trading-learn -n 10 -c 1.0
+  python -m agent_code.agent trading-learn --iterations 10 --cost-threshold 1.0
 ```
 
 **With Local LLM (Ollama - FREE):**
@@ -77,25 +89,27 @@ docker run --rm --network host \
   -e USE_LOCAL_LLM=true \
   -e OLLAMA_HOST=http://localhost:11434 \
   sica_sandbox \
-  python -m agent_code.agent trading-learn -n 10 -c 1.0
+  python -m agent_code.agent trading-learn --iterations 10 --cost-threshold 1.0
 ```
 
 **Parameters:**
-- `-n, --iterations`: Number of LLM-guided mutation iterations (default: 5)
-- `-c, --cost-threshold`: Maximum LLM cost in USD (default: None)
-- `-s, --server`: Enable web visualization server
+- `--iterations`: Number of LLM-guided mutation iterations (default: 5)
+- `--cost-threshold`: Maximum LLM cost in USD (default: None)
+- `--server`: Enable web visualization server on port 8080
 
 **Example with web server:**
 ```bash
+mkdir -p results/learn_with_viz
 docker run --rm --network host \
   -v $(pwd)/base_agent:/home/agent/agent_code \
   -v $(pwd)/benchmark_data:/home/agent/benchmark_data \
-  -v $(pwd)/results/interactive_output:/home/agent/workdir \
+  -v $(pwd)/results/learn_with_viz:/home/agent/workdir \
   -e USE_LOCAL_LLM=true \
   -e OLLAMA_HOST=http://localhost:11434 \
   sica_sandbox \
-  python -m agent_code.agent trading-learn -n 20 -c 5.0 -s
+  python -m agent_code.agent trading-learn --iterations 20 --cost-threshold 5.0 --server
 ```
+Then open http://localhost:8080 in your browser to see real-time evolution visualization.
 
 ### 3. Trading-Test (Single Strategy Backtest)
 
@@ -175,7 +189,7 @@ docker run --rm --network host \
   -e USE_LOCAL_LLM=true \
   -e OLLAMA_HOST=http://localhost:11434 \
   sica_sandbox \
-  python -m agent_code.agent trading-learn -n 20 -c 1.0
+  python -m agent_code.agent trading-learn --iterations 20 --cost-threshold 1.0
 ```
 
 ### Phase 3: Analyze Results
@@ -226,15 +240,67 @@ All outputs are stored in the mounted volumes:
 - **Best Strategy**: `results/interactive_output/evolution/best_strategy.txt`
 - **Summary**: `results/interactive_output/evolution/evolution_summary.txt`
 
+## Web Visualization (Sprint 6)
+
+Both `trading-evolve` and `trading-learn` support real-time web visualization with the `--server` flag.
+
+### Features
+
+**Callgraph Tab:**
+- View execution hierarchy and timing
+- See real-time events as they occur
+- Track token usage and costs
+- Monitor LLM calls and responses
+
+**Evolution Cells Tab:**
+- Browse all evolved trading strategies
+- View fitness scores and status
+- See DSL genomes for each cell
+- Filter by generation and performance
+
+### Example: Complete Workflow with Visualization
+
+```bash
+# Step 1: Build cell library with visualization (100 generations)
+mkdir -p results/evolution_viz
+docker run --rm -p 8080:8080 \
+  -v $(pwd)/base_agent:/home/agent/agent_code \
+  -v $(pwd)/benchmark_data:/home/agent/benchmark_data \
+  -v $(pwd)/results/evolution_viz:/home/agent/workdir \
+  sica_sandbox \
+  python -m agent_code.agent trading-evolve -g 100 -f 50.0 --server
+
+# Open http://localhost:8080 in your browser
+# Watch evolution in real-time on the Callgraph tab
+# Browse evolved strategies on the Evolution Cells tab
+
+# Step 2: LLM-guided learning with visualization
+docker run --rm --network host \
+  -v $(pwd)/base_agent:/home/agent/agent_code \
+  -v $(pwd)/benchmark_data:/home/agent/benchmark_data \
+  -v $(pwd)/results/evolution_viz:/home/agent/workdir \
+  -e USE_LOCAL_LLM=true \
+  -e OLLAMA_HOST=http://localhost:11434 \
+  sica_sandbox \
+  python -m agent_code.agent trading-learn --iterations 10 --cost-threshold 1.0 --server
+
+# Watch pattern discovery and intelligent mutations in real-time
+# See LLM-proposed strategies on the Callgraph tab
+# Monitor all cells (both evolved and LLM-guided) on the Evolution Cells tab
+```
+
+**Note:** Use `--network host` for trading-learn with Ollama (no `-p 8080:8080` needed).
+
 ## Performance Tips
 
 1. **Use local LLM (Ollama)** for cost-free experimentation
 2. **Run trading-evolve first** to build a cell library (100+ generations recommended)
-3. **Use background mode** for long runs (append `&` and redirect output)
-4. **Query database** to inspect progress without interrupting evolution
-5. **Set fitness goal** to terminate early when target is reached
+3. **Use web visualization** to monitor progress in real-time without interrupting evolution
+4. **Use background mode** for long runs without visualization (append `&` and redirect output)
+5. **Query database** to inspect historical results and patterns
+6. **Set fitness goal** to terminate early when target is reached
 
-## Example: Complete Sprint 3 Test
+## Example: Complete End-to-End Test
 
 ```bash
 # Step 1: Build cell library (100 generations, ~10-15 minutes)
@@ -253,7 +319,7 @@ docker run --rm --network host \
   -e USE_LOCAL_LLM=true \
   -e OLLAMA_HOST=http://localhost:11434 \
   sica_sandbox \
-  python -m agent_code.agent trading-learn -n 10 -c 1.0
+  python -m agent_code.agent trading-learn --iterations 10 --cost-threshold 1.0
 
 # Step 3: Review results
 sqlite3 results/interactive_output/evolution/cells.db \

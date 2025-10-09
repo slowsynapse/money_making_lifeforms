@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Evolution - SICA Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+    <style>
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+        .mono {
+            font-family: 'JetBrains Mono', 'Courier New', monospace;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        #execution-tree {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+        }
+        .tree-node {
+            padding: 8px;
+            margin: 4px 0;
+            border-left: 3px solid #3b82f6;
+            background: #f9fafb;
+            border-radius: 4px;
+        }
+        .tree-node.success {
+            border-left-color: #10b981;
+            background: #f0fdf4;
+        }
+        .tree-node.error {
+            border-left-color: #ef4444;
+            background: #fef2f2;
+        }
+        .tree-node.running {
+            border-left-color: #f59e0b;
+            background: #fffbeb;
+        }
+        #event-log {
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+        }
+        .event-item {
+            padding: 6px 8px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .event-time {
+            color: #6b7280;
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body class="h-full bg-gray-50">
+    <div class="min-h-full">
+        <!-- Header -->
+        <div class="sticky top-0 z-10 header shadow-lg">
+            <div class="mx-auto px-4 sm:px-6 lg:px-8 py-4">
+                <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <div>
+                        <h1 class="text-xl font-semibold text-white">Trading Evolution - SICA Dashboard</h1>
+                        <p class="text-sm text-purple-100">Port 8082 | Original dashboard on port 8081</p>
+                    </div>
+                    <div class="flex gap-4 text-sm">
+                        <div class="text-center px-4 py-2 bg-white/10 rounded-lg">
+                            <div class="text-purple-100">Total Cells</div>
+                            <div id="total-cells" class="text-2xl font-bold text-white">--</div>
+                        </div>
+                        <div class="text-center px-4 py-2 bg-white/10 rounded-lg">
+                            <div class="text-purple-100">Best Fitness</div>
+                            <div id="best-fitness" class="text-2xl font-bold text-white">--</div>
+                        </div>
+                        <div class="text-center px-4 py-2 bg-white/10 rounded-lg">
+                            <div class="text-purple-100">Avg Fitness</div>
+                            <div id="avg-fitness" class="text-2xl font-bold text-white">--</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="py-6">
+            <div class="mx-auto px-4 sm:px-6 lg:px-8 max-w-7xl space-y-6">
+                <!-- Tabs -->
+                <div class="border-b border-gray-200">
+                    <nav class="-mb-px flex space-x-8" aria-label="Tabs">
+                        <button id="tab-execution" class="tab-button border-b-2 border-blue-500 py-4 px-1 text-sm font-medium text-blue-600" onclick="showTab('execution')">
+                            Execution & Callgraph
+                        </button>
+                        <button id="tab-cells" class="tab-button border-b-2 border-transparent py-4 px-1 text-sm font-medium text-gray-500 hover:border-gray-300 hover:text-gray-700" onclick="showTab('cells')">
+                            Cell Browser
+                        </button>
+                    </nav>
+                </div>
+
+                <!-- Execution View -->
+                <div id="view-execution" class="space-y-6">
+                    <!-- Control Buttons -->
+                    <div class="bg-white shadow rounded-lg overflow-hidden">
+                        <div class="px-4 py-4">
+                            <div class="flex flex-wrap gap-3">
+                                <button onclick="runTradingEvolve()" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700">
+                                    <svg class="-ml-1 mr-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                    </svg>
+                                    Trading-Evolve (1000 gen)
+                                </button>
+                                <button onclick="runTradingLearn()" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700">
+                                    <svg class="-ml-1 mr-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                                    </svg>
+                                    Trading-Learn (LLM)
+                                </button>
+                                <button onclick="runTradingTest()" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-purple-600 hover:bg-purple-700">
+                                    <svg class="-ml-1 mr-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                                    </svg>
+                                    Trading-Test (Backtest)
+                                </button>
+                                <button onclick="showQueryModal()" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-gray-600 hover:bg-gray-700">
+                                    <svg class="-ml-1 mr-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                    </svg>
+                                    Query Cells
+                                </button>
+                            </div>
+                            <div id="action-status" class="mt-3 text-sm text-gray-600"></div>
+                        </div>
+                    </div>
+
+                    <!-- Execution Tree / Callgraph -->
+                    <div class="bg-white shadow rounded-lg overflow-hidden">
+                        <div class="px-4 py-3 border-b border-gray-200 bg-gray-50">
+                            <h2 class="text-lg font-medium text-gray-900">Execution Tree</h2>
+                        </div>
+                        <div id="execution-tree" class="p-4 min-h-[200px]">
+                            <div class="text-gray-500 text-center py-8">
+                                No active execution. Click a command button above to start.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Event Stream Log -->
+                    <div class="bg-white shadow rounded-lg overflow-hidden">
+                        <div class="px-4 py-3 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+                            <h2 class="text-lg font-medium text-gray-900">Event Stream</h2>
+                            <button onclick="clearEventLog()" class="text-sm text-gray-600 hover:text-gray-900">Clear</button>
+                        </div>
+                        <div id="event-log" class="p-4">
+                            <div class="event-item text-gray-500">
+                                <span class="event-time">[--:--:--]</span>
+                                Waiting for events...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Cell Browser View -->
+                <div id="view-cells" class="space-y-6" style="display: none;">
+                    <div class="bg-white shadow rounded-lg overflow-hidden">
+                        <div class="px-4 py-3 border-b border-gray-200 bg-gray-50">
+                            <h2 class="text-lg font-medium text-gray-900">Top Cells</h2>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Gen</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fitness</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Trades</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Strategy</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Source</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="cell-table-body" class="bg-white divide-y divide-gray-200">
+                                    <tr>
+                                        <td colspan="6" class="px-4 py-8 text-center text-gray-500">Loading cells...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Query Modal -->
+    <div id="query-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h3 class="text-lg font-semibold text-gray-900">Query Cells</h3>
+            </div>
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Limit</label>
+                    <input type="number" id="query-limit" value="20" min="1" max="100" class="w-full px-3 py-2 border border-gray-300 rounded-md">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Min Trades</label>
+                    <input type="number" id="query-min-trades" value="0" min="0" class="w-full px-3 py-2 border border-gray-300 rounded-md">
+                </div>
+            </div>
+            <div class="px-6 py-4 bg-gray-50 rounded-b-lg flex justify-end gap-3">
+                <button onclick="closeQueryModal()" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50">
+                    Cancel
+                </button>
+                <button onclick="executeCellQuery()" class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700">
+                    Query
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/dashboard.js"></script>
+</body>
+</html>

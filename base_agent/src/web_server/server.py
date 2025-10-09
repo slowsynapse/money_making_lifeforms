@@ -78,6 +78,18 @@ class CellsResponse(BaseModel):
     database_path: Optional[str]
 
 
+class GenerateCellsRequest(BaseModel):
+    """Request to generate new cells."""
+
+    generations: int = 1000
+
+
+class EvolveAIRequest(BaseModel):
+    """Request to start AI evolution."""
+
+    iterations: int = 10
+
+
 # Server setup
 app = FastAPI(title="Callgraph Visualizer")
 
@@ -233,8 +245,14 @@ async def get_callgraph():
 
 
 @app.get("/api/cells", response_model=CellsResponse)
-async def get_cells(limit: int = 100, status: Optional[str] = None):
-    """Get cells from the evolution database."""
+async def get_cells(limit: int = 100, status: Optional[str] = None, has_llm: Optional[bool] = None):
+    """Get cells from the evolution database.
+
+    Args:
+        limit: Maximum number of cells to return
+        status: Filter by cell status ('online', 'deprecated', etc.)
+        has_llm: Filter by LLM involvement (True=LLM only, False=evolution only, None=all)
+    """
     try:
         # Try to find the cells database in the default location
         db_path = Path("/home/agent/workdir/evolution/cells.db")
@@ -250,6 +268,15 @@ async def get_cells(limit: int = 100, status: Optional[str] = None):
         # Load cells from database
         repo = CellRepository(db_path)
         cells = repo.get_top_cells(limit=limit, status=status or 'online')
+
+        # Filter by LLM involvement if requested
+        if has_llm is not None:
+            if has_llm:
+                # Filter to only LLM-created cells (llm_name is not null)
+                cells = [cell for cell in cells if cell.llm_name is not None]
+            else:
+                # Filter to only evolution cells (llm_name is null)
+                cells = [cell for cell in cells if cell.llm_name is None]
 
         # Convert to response format
         cell_data = [
@@ -277,6 +304,77 @@ async def get_cells(limit: int = 100, status: Optional[str] = None):
             total_count=0,
             database_path=None,
         )
+
+
+@app.post("/api/generate-cells")
+async def generate_cells(request: GenerateCellsRequest):
+    """Start offline cell generation (trading-evolve)."""
+    try:
+        import subprocess
+
+        # Start trading-evolve in background
+        subprocess.Popen([
+            "python", "-m", "agent_code.agent",
+            "trading-evolve",
+            "-g", str(request.generations),
+            "-f", "1000.0",
+            "--server"
+        ], cwd="/home/agent")
+
+        return {"message": f"Started offline cell generation for {request.generations} generations"}
+    except Exception as e:
+        logger.error(f"Error starting cell generation: {e}")
+        return {"error": str(e)}, 500
+
+
+@app.post("/api/evolve-ai")
+async def evolve_ai(request: EvolveAIRequest):
+    """Start AI-guided evolution (trading-learn)."""
+    try:
+        # Import run_trading_learn from agent module
+        from ...agent import run_trading_learn
+
+        # Run trading-learn as a background task with proper async integration
+        # This maintains CallGraphManager and EventBus integration
+        asyncio.create_task(
+            run_trading_learn(
+                iterations=request.iterations,
+                workdir=Path("/home/agent/workdir"),
+                logdir=None,
+                server_enabled=True,  # Already have server running
+                cost_threshold=10.0,
+            )
+        )
+
+        return {"message": f"Started AI-guided evolution for {request.iterations} iterations"}
+    except Exception as e:
+        logger.error(f"Error starting AI evolution: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"error": str(e)}, 500
+
+
+@app.post("/api/clear-database")
+async def clear_database():
+    """Clear the cell database."""
+    try:
+        db_path = Path("/home/agent/workdir/evolution/cells.db")
+
+        if db_path.exists():
+            # Backup the database before deleting
+            import shutil
+            backup_path = db_path.parent / f"cells_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
+            shutil.copy2(db_path, backup_path)
+
+            # Delete the database
+            db_path.unlink()
+
+            return {"message": f"Database cleared successfully. Backup saved to {backup_path.name}"}
+        else:
+            return {"message": "No database found to clear"}
+    except Exception as e:
+        logger.error(f"Error clearing database: {e}")
+        return {"error": str(e)}, 500
 
 
 async def event_callback(event: Event | FileEvent):

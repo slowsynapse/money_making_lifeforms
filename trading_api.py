@@ -5,16 +5,18 @@ Provides a FastAPI server for the trading evolution system.
 This runs INSIDE Docker and provides endpoints the web UI can call.
 """
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Set
 import asyncio
 import os
 import sys
 import json
+import subprocess
+import signal
 from datetime import datetime
 
 # Add base_agent to path
@@ -45,6 +47,13 @@ if web_dir.exists():
 
 # Global repository instance
 repo: Optional[CellRepository] = None
+
+# Active WebSocket connections for real-time event streaming
+active_websockets: Set[WebSocket] = set()
+
+# Global process tracker for trading-learn
+current_process: Optional[subprocess.Popen] = None
+process_output_file: Optional[Path] = None
 
 
 def get_repository() -> CellRepository:
@@ -260,29 +269,225 @@ async def start_llm_learning(
 ):
     """Start a trading-learn session to create new LLM-guided strategies.
 
-    Note: This endpoint is designed to be called from outside the Docker container.
-    It returns a command that should be executed by the caller.
+    This now calls run_trading_learn directly with proper CallGraphManager integration.
     """
     try:
-        import os
+        # Import run_trading_learn from agent module
+        from base_agent.agent import run_trading_learn
 
-        # Build the command string
-        llm_flag = "--use-local" if use_local else ""
-        cmd = f"./trade-learn -n {num_strategies} -c {confidence} {llm_flag}".strip()
+        # Set environment variables for LLM configuration
+        if use_local:
+            os.environ["USE_LOCAL_LLM"] = "true"
+            os.environ["OLLAMA_HOST"] = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+
+        # Run trading-learn as a background task with proper async integration
+        # This maintains CallGraphManager and EventBus integration for real-time updates
+        async def run_learn_task():
+            try:
+                await run_trading_learn(
+                    iterations=num_strategies,
+                    workdir=Path("/workdir"),  # Docker workdir
+                    logdir=None,
+                    server_enabled=True,  # Enable CallGraphManager/EventBus
+                    cost_threshold=confidence * 10.0,  # Convert confidence to cost threshold
+                )
+            except Exception as e:
+                print(f"Error in trading-learn: {e}")
+                import traceback
+                traceback.print_exc()
+
+        # Start the task in the background
+        background_tasks.add_task(run_learn_task)
 
         llm_type = "local LLM (Ollama)" if use_local else "cloud LLM"
         return {
-            "message": f"LLM learning ready to start for {num_strategies} strategies using {llm_type}",
-            "command": cmd,
+            "message": f"LLM learning started for {num_strategies} strategies using {llm_type}",
             "parameters": {
                 "num_strategies": num_strategies,
                 "confidence": confidence,
                 "use_local": use_local
             },
-            "note": "Execute the command on the host to start learning. New strategies will appear in the database."
+            "note": "Learning is running in background. Watch the System Activity log for updates."
         }
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.websocket("/ws/events")
+async def websocket_endpoint(websocket: WebSocket):
+    """WebSocket endpoint for real-time callgraph event streaming."""
+    await websocket.accept()
+    active_websockets.add(websocket)
+    try:
+        # Keep connection alive and listen for client messages
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        active_websockets.remove(websocket)
+    except Exception as e:
+        print(f"WebSocket error: {e}")
+        if websocket in active_websockets:
+            active_websockets.remove(websocket)
+
+
+async def broadcast_event(event_data: Dict[str, Any]):
+    """Broadcast an event to all connected WebSocket clients."""
+    message = json.dumps(event_data)
+    disconnected = set()
+
+    for websocket in active_websockets:
+        try:
+            await websocket.send_text(message)
+        except Exception as e:
+            print(f"Error broadcasting to websocket: {e}")
+            disconnected.add(websocket)
+
+    # Remove disconnected websockets
+    for ws in disconnected:
+        active_websockets.discard(ws)
+
+
+@app.post("/learn/run")
+async def run_trading_learn():
+    """Start trading-learn process with 100 iterations using local LLM."""
+    global current_process, process_output_file
+
+    try:
+        # Check if already running
+        if current_process and current_process.poll() is None:
+            return {"status": "error", "message": "Trading-learn is already running"}
+
+        # Create output file
+        process_output_file = Path("/tmp") / f"trading_learn_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+
+        # Build docker command (matching your working command)
+        cmd = [
+            "docker", "run", "--rm", "--network", "host",
+            "--user", f"{os.getuid()}:{os.getgid()}",
+            "-e", "USE_LOCAL_LLM=true",
+            "-v", f"{Path.cwd()}/base_agent:/home/agent/agent_code",
+            "-v", f"{Path.cwd()}/benchmark_data:/home/agent/benchmark_data",
+            "-v", f"{Path.cwd()}/results/evolution_viz:/home/agent/workdir",
+            "sica_sandbox",
+            "python", "-m", "agent_code.agent", "trading-learn", "-n", "100"
+        ]
+
+        # Start process with output redirection
+        with open(process_output_file, 'w') as f:
+            current_process = subprocess.Popen(
+                cmd,
+                stdout=f,
+                stderr=subprocess.STDOUT,
+                preexec_fn=os.setsid  # Create new process group for easier killing
+            )
+
+        return {
+            "status": "success",
+            "message": "Trading-learn started with 100 iterations (local LLM)",
+            "pid": current_process.pid,
+            "output_file": str(process_output_file)
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/learn/stop")
+async def stop_trading_learn():
+    """Stop the running trading-learn process."""
+    global current_process
+
+    try:
+        if not current_process or current_process.poll() is not None:
+            return {"status": "error", "message": "No trading-learn process is running"}
+
+        # Kill the entire process group (docker and its children)
+        try:
+            os.killpg(os.getpgid(current_process.pid), signal.SIGTERM)
+        except:
+            current_process.terminate()
+
+        # Wait for process to actually stop
+        try:
+            current_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            os.killpg(os.getpgid(current_process.pid), signal.SIGKILL)
+
+        current_process = None
+
+        return {"status": "success", "message": "Trading-learn process stopped"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/learn/status")
+async def get_learn_status():
+    """Get status of trading-learn process."""
+    global current_process
+
+    if not current_process:
+        return {"running": False, "pid": None}
+
+    poll_result = current_process.poll()
+    is_running = poll_result is None
+
+    return {
+        "running": is_running,
+        "pid": current_process.pid if is_running else None,
+        "exit_code": poll_result if not is_running else None
+    }
+
+
+@app.get("/learn/output")
+async def get_learn_output(lines: int = 50):
+    """Get recent output from trading-learn process."""
+    global process_output_file
+
+    try:
+        if not process_output_file or not process_output_file.exists():
+            return {"output": "No output file available"}
+
+        # Read last N lines using tail
+        result = subprocess.run(
+            ["tail", "-n", str(lines), str(process_output_file)],
+            capture_output=True,
+            text=True
+        )
+
+        return {"output": result.stdout, "file": str(process_output_file)}
+    except Exception as e:
+        return {"output": f"Error reading output: {e}"}
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Subscribe to EventBus on startup to stream events to WebSocket clients."""
+    try:
+        from base_agent.src.events import EventBus
+        from base_agent.src.types.event_types import EventType, Event
+
+        event_bus = await EventBus.get_instance()
+
+        # Define event callback
+        async def event_callback(event: Event):
+            """Forward events to WebSocket clients."""
+            try:
+                event_data = {
+                    "type": event.type.value if hasattr(event.type, "value") else str(event.type),
+                    "content": str(event.content) if event.content else "",
+                    "timestamp": event.timestamp.isoformat() if event.timestamp else datetime.now().isoformat(),
+                    "metadata": event.metadata if event.metadata else {}
+                }
+                await broadcast_event(event_data)
+            except Exception as e:
+                print(f"Error processing event: {e}")
+
+        # Subscribe to all event types
+        event_bus.subscribe(set(EventType), event_callback)
+        print("✓ Subscribed to EventBus for real-time event streaming")
+    except Exception as e:
+        print(f"Warning: Could not subscribe to EventBus: {e}")
 
 
 if __name__ == "__main__":
