@@ -1,6 +1,9 @@
 import random
 import copy
-from .grammar import DslProgram, Operator, Rule, Indicator, Action, Condition
+from .grammar import (
+    DslProgram, Operator, Rule, Indicator, Action, Condition,
+    ArithmeticOp, IndicatorValue, BinaryOp, Expression
+)
 
 class DslMutator:
     """
@@ -65,10 +68,19 @@ class DslMutator:
         return mutated_program
 
     def _mutate_rule(self, rule: Rule) -> Rule:
-        """Mutate a single rule by changing one component."""
+        """
+        Mutate a single rule by changing one component.
+        Supports both V1 (legacy) and V2 (expression-based) rules.
+        """
+        # Ensure condition has V2 expressions (Condition.__post_init__ should handle this)
+        if rule.condition.left is None:
+            rule.condition.left = IndicatorValue(rule.condition.indicator1, rule.condition.param1)
+        if rule.condition.right is None:
+            rule.condition.right = IndicatorValue(rule.condition.indicator2, rule.condition.param2)
+
+        # Choose mutation target
         mutation_type = random.choice([
-            "operator", "indicator1", "indicator2",
-            "param1", "param2", "true_action", "false_action"
+            "operator", "left_expr", "right_expr", "true_action", "false_action"
         ])
 
         if mutation_type == "operator":
@@ -77,27 +89,13 @@ class DslMutator:
             print(f"  - Changed operator: {rule.condition.operator.value} → {new_op.value}")
             rule.condition.operator = new_op
 
-        elif mutation_type == "indicator1":
-            possible_indicators = [ind for ind in Indicator if ind != rule.condition.indicator1]
-            new_ind = random.choice(possible_indicators)
-            print(f"  - Changed indicator1: {rule.condition.indicator1.value} → {new_ind.value}")
-            rule.condition.indicator1 = new_ind
+        elif mutation_type == "left_expr":
+            print(f"  - Mutating left expression")
+            rule.condition.left = self._mutate_expression(rule.condition.left)
 
-        elif mutation_type == "indicator2":
-            possible_indicators = [ind for ind in Indicator if ind != rule.condition.indicator2]
-            new_ind = random.choice(possible_indicators)
-            print(f"  - Changed indicator2: {rule.condition.indicator2.value} → {new_ind.value}")
-            rule.condition.indicator2 = new_ind
-
-        elif mutation_type == "param1":
-            new_param = random.choice([0, 5, 10, 14, 20, 30, 50, 100, 200])
-            print(f"  - Changed param1: {rule.condition.param1} → {new_param}")
-            rule.condition.param1 = new_param
-
-        elif mutation_type == "param2":
-            new_param = random.choice([0, 5, 10, 14, 20, 30, 50, 100, 200])
-            print(f"  - Changed param2: {rule.condition.param2} → {new_param}")
-            rule.condition.param2 = new_param
+        elif mutation_type == "right_expr":
+            print(f"  - Mutating right expression")
+            rule.condition.right = self._mutate_expression(rule.condition.right)
 
         elif mutation_type == "true_action":
             possible_actions = [a for a in Action if a != rule.true_action]
@@ -113,8 +111,84 @@ class DslMutator:
 
         return rule
 
+    def _wrap_in_arithmetic(self, expr: Expression) -> BinaryOp:
+        """
+        Wrap an expression in a random arithmetic operation.
+        Example: DELTA(10) → DELTA(10) / DELTA(50)
+        """
+        # Create a new random indicator value
+        new_indicator = IndicatorValue(
+            indicator=random.choice(list(Indicator)),
+            param=random.choice([0, 5, 10, 14, 20, 30, 50, 100, 200])
+        )
+
+        # Choose arithmetic operator
+        op = random.choice(list(ArithmeticOp))
+
+        # Randomly decide if expr is left or right operand
+        if random.random() < 0.5:
+            return BinaryOp(left=expr, op=op, right=new_indicator)
+        else:
+            return BinaryOp(left=new_indicator, op=op, right=expr)
+
+    def _change_arithmetic_operator(self, binary_op: BinaryOp) -> BinaryOp:
+        """Change the operator in a BinaryOp."""
+        possible_ops = [op for op in ArithmeticOp if op != binary_op.op]
+        binary_op.op = random.choice(possible_ops)
+        return binary_op
+
+    def _mutate_expression(self, expr: Expression) -> Expression:
+        """
+        Mutate an expression (V2-aware).
+        Can mutate simple indicators or arithmetic operations.
+        """
+        if isinstance(expr, IndicatorValue):
+            # For simple indicators, randomly either:
+            # 1. Change the indicator
+            # 2. Change the parameter
+            # 3. Wrap in arithmetic operation (10% chance)
+
+            if random.random() < 0.1:
+                # Wrap in arithmetic
+                print(f"  - Wrapped in arithmetic operation")
+                return self._wrap_in_arithmetic(expr)
+            elif random.random() < 0.5:
+                # Change indicator
+                new_indicator = random.choice([ind for ind in Indicator if ind != expr.indicator])
+                print(f"  - Changed indicator: {expr.indicator.value} → {new_indicator.value}")
+                expr.indicator = new_indicator
+            else:
+                # Change parameter
+                new_param = random.choice([0, 5, 10, 14, 20, 30, 50, 100, 200])
+                print(f"  - Changed parameter: {expr.param} → {new_param}")
+                expr.param = new_param
+            return expr
+
+        elif isinstance(expr, BinaryOp):
+            # For arithmetic operations, randomly:
+            # 1. Change the operator
+            # 2. Mutate left expression
+            # 3. Mutate right expression
+            mutation_choice = random.choice(["operator", "left", "right"])
+
+            if mutation_choice == "operator":
+                print(f"  - Changed arithmetic operator: {expr.op.value}")
+                return self._change_arithmetic_operator(expr)
+            elif mutation_choice == "left":
+                print(f"  - Mutating left side of arithmetic")
+                expr.left = self._mutate_expression(expr.left)
+            else:
+                print(f"  - Mutating right side of arithmetic")
+                expr.right = self._mutate_expression(expr.right)
+            return expr
+
+        return expr
+
     def _create_random_rule(self) -> Rule:
-        """Create a completely random rule."""
+        """
+        Create a completely random rule.
+        Creates V1 rules by default, but mutations can evolve them into V2.
+        """
         condition = Condition(
             indicator1=random.choice(list(Indicator)),
             param1=random.choice([0, 5, 10, 14, 20, 30, 50, 100, 200]),
@@ -127,28 +201,3 @@ class DslMutator:
             true_action=random.choice(list(Action)),
             false_action=random.choice(list(Action))
         )
-
-    def to_string(self, program: DslProgram) -> str:
-        """
-        Converts a DslProgram back into its string representation.
-        Multiple rules are separated by newlines.
-        """
-        if not program:
-            return ""
-
-        rule_strings = []
-        for rule in program:
-            cond = rule.condition
-
-            # Format parameters: show empty parens () for param=0, otherwise show the number
-            param1_str = "" if cond.param1 == 0 else str(cond.param1)
-            param2_str = "" if cond.param2 == 0 else str(cond.param2)
-
-            rule_str = (
-                f"IF {cond.indicator1.name}({param1_str}) {cond.operator.value} {cond.indicator2.name}({param2_str}) "
-                f"THEN {rule.true_action.name} "
-                f"ELSE {rule.false_action.name}"
-            )
-            rule_strings.append(rule_str)
-
-        return "\n".join(rule_strings)

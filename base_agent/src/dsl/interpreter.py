@@ -1,7 +1,10 @@
 import re
 import pandas as pd
 from collections import Counter
-from .grammar import Indicator, Operator, Action, Condition, Rule, DslProgram, AggregationMode
+from .grammar import (
+    Indicator, Operator, Action, Condition, Rule, DslProgram, AggregationMode,
+    ArithmeticOp, IndicatorValue, BinaryOp, Expression
+)
 
 class DslInterpreter:
     """
@@ -145,45 +148,105 @@ class DslInterpreter:
         # Return the value
         return float(market_data.iloc[lookback_index][column])
 
+    def _evaluate_expression(
+        self,
+        expression: Expression,
+        market_data: pd.DataFrame,
+        current_index: int
+    ) -> float:
+        """
+        Evaluate an expression (either simple indicator or arithmetic operation).
+
+        Args:
+            expression: IndicatorValue or BinaryOp
+            market_data: Full DataFrame with OHLCV data
+            current_index: Current row index
+
+        Returns:
+            Float value of the expression
+        """
+        if isinstance(expression, IndicatorValue):
+            # Simple indicator - get its value directly
+            return self._get_indicator_value(
+                expression.indicator,
+                expression.param,
+                market_data,
+                current_index
+            )
+        elif isinstance(expression, BinaryOp):
+            # Arithmetic operation - recursively evaluate left and right
+            left_val = self._evaluate_expression(expression.left, market_data, current_index)
+            right_val = self._evaluate_expression(expression.right, market_data, current_index)
+
+            # Apply the operation
+            if expression.op == ArithmeticOp.ADD:
+                return left_val + right_val
+            elif expression.op == ArithmeticOp.SUBTRACT:
+                return left_val - right_val
+            elif expression.op == ArithmeticOp.MULTIPLY:
+                return left_val * right_val
+            elif expression.op == ArithmeticOp.DIVIDE:
+                # Prevent division by zero
+                if right_val == 0:
+                    return float('inf') if left_val >= 0 else float('-inf')
+                return left_val / right_val
+            else:
+                raise ValueError(f"Unknown arithmetic operator: {expression.op}")
+        else:
+            raise TypeError(f"Unknown expression type: {type(expression)}")
+
     def _execute_single_rule(self, rule: Rule, market_data: pd.DataFrame | dict, current_index: int = None) -> Action:
-        """Execute a single rule and return its action."""
+        """Execute a single rule and return its action. Supports both V1 and V2 conditions."""
 
         # Backward compatibility: if market_data is a dict, use dummy values
         if isinstance(market_data, dict):
-            indicator1_value = 100
-            indicator2_value = 98
+            left_value = 100
+            right_value = 98
         else:
             # New path: use real market data with lookback
             if current_index is None:
                 raise ValueError("current_index must be provided when market_data is a DataFrame")
 
-            indicator1_value = self._get_indicator_value(
-                rule.condition.indicator1,
-                rule.condition.param1,
-                market_data,
-                current_index
-            )
-
-            indicator2_value = self._get_indicator_value(
-                rule.condition.indicator2,
-                rule.condition.param2,
-                market_data,
-                current_index
-            )
+            # V2: Use expression evaluation if condition has left/right expressions
+            if rule.condition.left is not None and rule.condition.right is not None:
+                left_value = self._evaluate_expression(
+                    rule.condition.left,
+                    market_data,
+                    current_index
+                )
+                right_value = self._evaluate_expression(
+                    rule.condition.right,
+                    market_data,
+                    current_index
+                )
+            else:
+                # V1: Use legacy indicator1/indicator2 fields
+                left_value = self._get_indicator_value(
+                    rule.condition.indicator1,
+                    rule.condition.param1,
+                    market_data,
+                    current_index
+                )
+                right_value = self._get_indicator_value(
+                    rule.condition.indicator2,
+                    rule.condition.param2,
+                    market_data,
+                    current_index
+                )
 
         # Evaluate the condition
         condition_met = False
         op = rule.condition.operator
         if op == Operator.GREATER_THAN:
-            condition_met = indicator1_value > indicator2_value
+            condition_met = left_value > right_value
         elif op == Operator.LESS_THAN:
-            condition_met = indicator1_value < indicator2_value
+            condition_met = left_value < right_value
         elif op == Operator.GREATER_THAN_OR_EQUAL:
-            condition_met = indicator1_value >= indicator2_value
+            condition_met = left_value >= right_value
         elif op == Operator.LESS_THAN_OR_EQUAL:
-            condition_met = indicator1_value <= indicator2_value
+            condition_met = left_value <= right_value
         elif op == Operator.EQUAL:
-            condition_met = indicator1_value == indicator2_value
+            condition_met = left_value == right_value
 
         if condition_met:
             return rule.true_action
@@ -222,25 +285,60 @@ class DslInterpreter:
         # On tie, prefer HOLD
         return Action.HOLD
 
+    def _expression_to_string(self, expr: Expression) -> str:
+        """Convert an expression to its string representation."""
+        if isinstance(expr, IndicatorValue):
+            # Simple indicator
+            ind = expr.indicator.value
+            param = f"({expr.param})" if expr.param else "()"
+            return f"{ind}{param}"
+        elif isinstance(expr, BinaryOp):
+            # Arithmetic operation - recursively convert left and right
+            left_str = self._expression_to_string(expr.left)
+            right_str = self._expression_to_string(expr.right)
+            op_str = expr.op.value
+
+            # Add parentheses to preserve order of operations
+            # Simple heuristic: parenthesize if child is also a BinaryOp
+            if isinstance(expr.left, BinaryOp):
+                left_str = f"({left_str})"
+            if isinstance(expr.right, BinaryOp):
+                right_str = f"({right_str})"
+
+            return f"{left_str} {op_str} {right_str}"
+        else:
+            return str(expr)
+
     def to_string(self, program: DslProgram) -> str:
         """
         Convert a DslProgram back to a string representation.
         Multiple rules are separated by newlines.
+        Supports both V1 and V2 syntax.
         """
         if not program:
             return ""
 
         rule_strings = []
         for rule in program:
-            ind1 = rule.condition.indicator1.value
-            param1 = f"({rule.condition.param1})" if rule.condition.param1 else "()"
+            # V2: Use expression-based formatting if available
+            if rule.condition.left is not None and rule.condition.right is not None:
+                left_str = self._expression_to_string(rule.condition.left)
+                right_str = self._expression_to_string(rule.condition.right)
+            else:
+                # V1: Use legacy indicator1/indicator2 fields
+                ind1 = rule.condition.indicator1.value
+                param1 = f"({rule.condition.param1})" if rule.condition.param1 else "()"
+                left_str = f"{ind1}{param1}"
+
+                ind2 = rule.condition.indicator2.value
+                param2 = f"({rule.condition.param2})" if rule.condition.param2 else "()"
+                right_str = f"{ind2}{param2}"
+
             op = rule.condition.operator.value
-            ind2 = rule.condition.indicator2.value
-            param2 = f"({rule.condition.param2})" if rule.condition.param2 else "()"
             true_action = rule.true_action.value
             false_action = rule.false_action.value
 
-            rule_str = f"IF {ind1}{param1} {op} {ind2}{param2} THEN {true_action} ELSE {false_action}"
+            rule_str = f"IF {left_str} {op} {right_str} THEN {true_action} ELSE {false_action}"
             rule_strings.append(rule_str)
 
         return "\n".join(rule_strings)

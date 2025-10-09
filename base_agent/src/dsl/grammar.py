@@ -25,13 +25,49 @@ class Action(Enum):
     SELL = "SELL"
     HOLD = "HOLD"
 
+class ArithmeticOp(Enum):
+    """Arithmetic operators for DSL V2."""
+    ADD = "+"
+    SUBTRACT = "-"
+    MULTIPLY = "*"
+    DIVIDE = "/"
+
+@dataclass
+class IndicatorValue:
+    """A single indicator with its parameter (e.g., DELTA(10))."""
+    indicator: Indicator
+    param: int
+
+@dataclass
+class BinaryOp:
+    """Binary arithmetic operation (e.g., DELTA(0) / DELTA(20))."""
+    left: Union['BinaryOp', 'IndicatorValue']
+    op: ArithmeticOp
+    right: Union['BinaryOp', 'IndicatorValue']
+
+# Expression type can be either a simple indicator or a binary operation
+Expression = Union[IndicatorValue, BinaryOp]
+
 @dataclass
 class Condition:
-    indicator1: Indicator
-    param1: int
+    """Comparison condition (e.g., expr1 > expr2)."""
     operator: Operator
-    indicator2: Indicator
-    param2: int
+    left: Expression = None
+    right: Expression = None
+
+    # Legacy support for V1 strategies (will be deprecated)
+    # These are only used if left/right are None
+    indicator1: Indicator = None
+    param1: int = None
+    indicator2: Indicator = None
+    param2: int = None
+
+    def __post_init__(self):
+        """Convert legacy V1 format to V2 format if needed."""
+        if self.left is None and self.indicator1 is not None:
+            self.left = IndicatorValue(self.indicator1, self.param1)
+        if self.right is None and self.indicator2 is not None:
+            self.right = IndicatorValue(self.indicator2, self.param2)
 
 @dataclass
 class Rule:

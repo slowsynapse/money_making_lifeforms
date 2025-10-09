@@ -480,7 +480,7 @@ async def run_trading_demo():
         program = interpreter.parse(base)
         for i in range(3):
             mutated = mutator.mutate(program)
-            print(f"  {i+1}. {mutator.to_string(mutated)}")
+            print(f"  {i+1}. {interpreter.to_string(mutated)}")
             program = interpreter.parse(base)  # Reset for next mutation
         
         # Demo 3: Explain the system
@@ -1016,7 +1016,7 @@ async def run_trading_evolve(
             # Mutate
             print(f"Parent (Cell #{parent_cell.cell_id}): {parent_cell.dsl_genome}")
             mutated_program = mutator.mutate(program)
-            mutated_strategy = mutator.to_string(mutated_program)
+            mutated_strategy = interpreter.to_string(mutated_program)
             print(f"Child:  {mutated_strategy}")
 
             # Setup and test mutant (save to gen_dir for logging)
