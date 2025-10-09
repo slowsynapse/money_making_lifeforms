@@ -620,6 +620,12 @@ async def run_trading_learn(
     print(f"\n🧠 LLM will analyze cells and propose {iterations} intelligent mutations.")
     print("💡 Requires cell database from prior trading-evolve run.\n")
 
+    # Start web server if enabled
+    web_server_task = None
+    if server_enabled:
+        print(f"🌐 Starting web visualization server on http://localhost:8080")
+        web_server_task = asyncio.create_task(run_server())
+
     try:
         from .src.benchmarks.trading_benchmarks.trading_benchmark import TradingBenchmark
         from .src.dsl.interpreter import DslInterpreter
@@ -630,6 +636,19 @@ async def run_trading_learn(
             merge_pattern_discoveries,
             propose_intelligent_mutation,
         )
+
+        # Initialize EventBus for web UI updates
+        event_bus = await EventBus.get_instance() if server_enabled else None
+
+        # Create root callgraph node for learn run (enables web UI event display)
+        callgraph = None
+        if server_enabled:
+            callgraph = await CallGraphManager.get_instance()
+            await callgraph.start_agent(
+                agent_name="trading-learn",
+                node_id="trading-learn",
+                args={"iterations": iterations, "cost_threshold": cost_threshold},
+            )
 
         # Create results directory
         results_dir = workdir / "evolution"
@@ -689,6 +708,16 @@ async def run_trading_learn(
         print(f"📊 Analyzing top {len(top_cells)} cells for pattern discovery...")
         cell_ids = [cell.cell_id for cell in top_cells]
 
+        # Publish analysis start event
+        if event_bus:
+            await event_bus.publish(
+                Event(
+                    type=EventType.CELL_ANALYSIS_START,
+                    content=f"Loading {len(top_cells)} cells for pattern analysis..."
+                ),
+                "trading-learn"
+            )
+
         # Analyze cells in batches (30 cells per batch for Gemma 8K context)
         batch_results = await analyze_cells_in_batches(
             repo=repo,
@@ -712,6 +741,16 @@ async def run_trading_learn(
                 print(f"     Used by {pattern['num_cells']} cells")
                 print()
 
+                # Publish pattern discovery event
+                if event_bus:
+                    await event_bus.publish(
+                        Event(
+                            type=EventType.PATTERN_DISCOVERED,
+                            content=f"Pattern: {pattern['pattern_name']} ({pattern['pattern_category']})\n{pattern['explanation']}\nUsed by {pattern['num_cells']} cells"
+                        ),
+                        "trading-learn"
+                    )
+
         # PHASE 2: Intelligent Mutation Loop
         print(f"\n{'='*70}")
         print(f"PHASE 2: INTELLIGENT MUTATION ({iterations} iterations)")
@@ -730,6 +769,16 @@ async def run_trading_learn(
             print(f"\n{'='*70}")
             print(f"ITERATION {iteration + 1}/{iterations}")
             print(f"{'='*70}")
+
+            # Publish iteration progress
+            if event_bus:
+                await event_bus.publish(
+                    Event(
+                        type=EventType.CELL_ANALYSIS_PROGRESS,
+                        content=f"Iteration {iteration + 1}/{iterations}: Generating intelligent mutation..."
+                    ),
+                    "trading-learn"
+                )
 
             # Check cost threshold
             if cost_threshold and total_cost >= cost_threshold:
@@ -779,6 +828,16 @@ async def run_trading_learn(
             print(f"   Rationale: {rationale[:100]}...")
             print(f"   Confidence: {confidence}")
 
+            # Publish mutation proposal event
+            if event_bus:
+                await event_bus.publish(
+                    Event(
+                        type=EventType.MUTATION_PROPOSED,
+                        content=f"Cell #{parent_cell.cell_id}: {proposed_strategy}\nRationale: {rationale[:150]}...\nConfidence: {confidence}"
+                    ),
+                    "trading-learn"
+                )
+
             # Parse and validate
             program = interpreter.parse(proposed_strategy)
             if not program:
@@ -803,6 +862,16 @@ async def run_trading_learn(
             )
 
             print(f"{backtest_log}")
+
+            # Publish backtest result event
+            if event_bus:
+                await event_bus.publish(
+                    Event(
+                        type=EventType.MUTATION_TESTED,
+                        content=f"Fitness: ${fitness:.2f} | Parent: ${parent_cell.fitness:.2f}\n{backtest_log}"
+                    ),
+                    "trading-learn"
+                )
 
             # Check if strategy survived
             survived = any(p.total_profit > -100.0 for p in phenotypes.values())
@@ -839,6 +908,16 @@ async def run_trading_learn(
                 )
 
                 print(f"🧬 Cell #{child_cell_id} birthed (Gen {parent_cell.generation + 1}, LLM-guided)")
+
+                # Publish cell birth event
+                if event_bus:
+                    await event_bus.publish(
+                        Event(
+                            type=EventType.CELL_BIRTHED,
+                            content=f"Cell #{child_cell_id} birthed (Gen {parent_cell.generation + 1}, +${fitness - parent_cell.fitness:.2f})"
+                        ),
+                        "trading-learn"
+                    )
 
                 # Track best
                 if fitness > best_fitness:
@@ -945,10 +1024,44 @@ async def run_trading_learn(
         print(f"\n✓ Results saved to database: {db_path}")
         print(f"\n💡 Pattern taxonomy and mutation proposals stored for future analysis")
 
+        # Mark callgraph node as complete
+        if callgraph:
+            await callgraph.complete_agent(
+                node_id="trading-learn",
+                result=f"Completed {len(history)} iterations, birthed {cells_birthed} cells",
+                token_count=0,
+                num_cached_tokens=0,
+                cost=total_cost,
+                success=True,
+            )
+
     except Exception as e:
         print(f"\n❌ Error: {e}")
         import traceback
         traceback.print_exc()
+
+        # Mark callgraph node as failed
+        if callgraph:
+            await callgraph.fail_agent("trading-learn", str(e))
+
+    finally:
+        # Keep web server running if it was started
+        if web_server_task:
+            print(f"\n🌐 Web server still running at http://localhost:8080")
+            print(f"📊 View results in the 'Evolution Cells' tab")
+            print(f"⌨️  Press Ctrl+C to stop the server and exit")
+
+            try:
+                # Wait indefinitely until user presses Ctrl+C
+                await web_server_task
+            except (KeyboardInterrupt, asyncio.CancelledError):
+                print(f"\n🌐 Shutting down web visualization server...")
+                web_server_task.cancel()
+                try:
+                    await web_server_task
+                except asyncio.CancelledError:
+                    pass
+                print(f"✓ Web server shutdown complete")
 
 async def run_trading_evolve(
     generations: int,
@@ -956,6 +1069,7 @@ async def run_trading_evolve(
     initial_strategy: str | None = None,
     fitness_goal: float = 200.0,  # Target fitness to achieve before early termination
     lenient_cell_count: int = 100,  # Birth any survivor for first N cells (genetic diversity)
+    server_enabled: bool = False,  # Whether to run the web server
 ) -> None:
     """
     Evolve trading strategies through pure DSL mutation with cell-based storage.
@@ -982,6 +1096,12 @@ async def run_trading_evolve(
     print(f"🎯 Goal: Achieve fitness of ${fitness_goal:.2f}")
     print("💰 FREE after Gen 0! No LLM costs, just natural selection.\n")
 
+    # Start web server if enabled
+    web_server_task = None
+    if server_enabled:
+        print(f"🌐 Starting web visualization server on http://localhost:8080")
+        web_server_task = asyncio.create_task(run_server())
+
     try:
         from .src.benchmarks.trading_benchmarks.trading_benchmark import TradingBenchmark
         from .src.dsl.interpreter import DslInterpreter
@@ -989,6 +1109,19 @@ async def run_trading_evolve(
         from .src.storage.cell_repository import CellRepository
         from .src.data.hyperliquid_fetcher import HyperliquidDataFetcher
         import random
+
+        # Initialize EventBus for web UI updates
+        event_bus = await EventBus.get_instance() if server_enabled else None
+
+        # Create root callgraph node for evolution run (enables web UI event display)
+        callgraph = None
+        if server_enabled:
+            callgraph = await CallGraphManager.get_instance()
+            await callgraph.start_agent(
+                agent_name="trading-evolve",
+                node_id="trading-evolve",
+                args={"generations": generations, "fitness_goal": fitness_goal},
+            )
 
         benchmark = TradingBenchmark()
         interpreter = DslInterpreter()
@@ -1143,6 +1276,16 @@ async def run_trading_evolve(
             print(f"GENERATION {gen}: Mutation & Selection")
             print(f"{'='*70}")
 
+            # Publish generation progress event
+            if event_bus:
+                await event_bus.publish(
+                    Event(
+                        type=EventType.PROGRESS,
+                        content=f"Generation {gen}/{generations}: Testing mutation..."
+                    ),
+                    "trading-evolve"
+                )
+
             # Get best cell as parent (use database query)
             best_cells = repo.get_top_cells(limit=1, status='online')
             if not best_cells:
@@ -1216,6 +1359,16 @@ async def run_trading_evolve(
 
                 phase = "lenient" if birth_reason == "lenient_diversity" else "strict"
                 print(f"🧬 Cell #{child_cell_id} birthed (Gen {gen}, parent: #{parent_cell.cell_id}, {phase} mode)")
+
+                # Publish cell birth event
+                if event_bus:
+                    await event_bus.publish(
+                        Event(
+                            type=EventType.CELL_BIRTHED,
+                            content=f"Cell #{child_cell_id} birthed (Gen {gen}, ${mutated_fitness:.2f})"
+                        ),
+                        "trading-evolve"
+                    )
 
                 current_strategy = mutated_strategy
                 current_fitness = mutated_fitness
@@ -1366,10 +1519,44 @@ async def run_trading_evolve(
         print(f"\n📊 Query cells: sqlite3 {db_path} 'SELECT cell_id, generation, fitness, status FROM cells ORDER BY fitness DESC LIMIT 10;'")
         print(f"📊 View lineage: sqlite3 {db_path} 'SELECT * FROM cells WHERE cell_id IN (SELECT cell_id FROM cells UNION SELECT parent_cell_id FROM cells WHERE cell_id={best_cell_id if best_cell_id else 1});'")
 
+        # Mark callgraph node as complete
+        if callgraph:
+            await callgraph.complete_agent(
+                node_id="trading-evolve",
+                result=f"Completed {len(population_history)} generations, birthed {cells_birthed} cells, best fitness ${best_fitness:.2f}",
+                token_count=0,
+                num_cached_tokens=0,
+                cost=0.0,
+                success=True,
+            )
+
     except Exception as e:
         print(f"\n❌ Error: {e}")
         import traceback
         traceback.print_exc()
+
+        # Mark callgraph node as failed
+        if callgraph:
+            await callgraph.fail_agent("trading-evolve", str(e))
+
+    finally:
+        # Keep web server running if it was started
+        if web_server_task:
+            print(f"\n🌐 Web server still running at http://localhost:8080")
+            print(f"📊 View results in the 'Evolution Cells' tab")
+            print(f"⌨️  Press Ctrl+C to stop the server and exit")
+
+            try:
+                # Wait indefinitely until user presses Ctrl+C
+                await web_server_task
+            except (KeyboardInterrupt, asyncio.CancelledError):
+                print(f"\n🌐 Shutting down web visualization server...")
+                web_server_task.cancel()
+                try:
+                    await web_server_task
+                except asyncio.CancelledError:
+                    pass
+                print(f"✓ Web server shutdown complete")
 
 
 async def main():
@@ -1510,6 +1697,12 @@ async def main():
         default=200.0,
         help="Target fitness to achieve for early termination (default: 200.0)",
     )
+    evolve_parser.add_argument(
+        "--server",
+        "-s",
+        action="store_true",
+        help="Enable the web visualization server on http://localhost:8080",
+    )
 
     # For backward compatibility, also accept args without subcommand
     parser.add_argument(
@@ -1589,6 +1782,7 @@ async def main():
                 workdir=Path(args.workdir),
                 initial_strategy=args.initial_strategy,
                 fitness_goal=args.fitness_goal,
+                server_enabled=args.server,
             )
             return
             

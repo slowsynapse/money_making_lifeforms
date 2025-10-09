@@ -31,6 +31,16 @@ class EventType(Enum):
     TIMEOUT = "timeout"
     COST_LIMIT = "cost_limit"
 
+    # Cell evolution events (Sprint 6)
+    PROGRESS = "progress"  # General progress update
+    CELL_ANALYSIS_START = "cell_analysis_start"  # Start of pattern analysis
+    CELL_ANALYSIS_PROGRESS = "cell_analysis_progress"  # Batch analysis progress
+    PATTERN_DISCOVERED = "pattern_discovery"  # Pattern found by LLM
+    MUTATION_PROPOSED = "mutation_proposal"  # LLM proposes mutation
+    MUTATION_TESTED = "mutation_test"  # Backtest result
+    CELL_BIRTHED = "cell_birth"  # New cell created
+    CELL_DEPRECATED = "cell_deprecation"  # Cell marked as deprecated
+
 
 @dataclass
 class Event:

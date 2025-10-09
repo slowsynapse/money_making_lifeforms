@@ -25,6 +25,7 @@ from ..callgraph.reporting import _format_duration, _format_cost
 from ..events import EventBus
 from ..events.event_bus_utils import get_subagent_events
 from ..types.event_types import EventType, Event, FileEvent
+from ..storage.cell_repository import CellRepository
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,26 @@ class CallGraphData(BaseModel):
     total_tokens: Optional[int]
     num_cached_tokens: Optional[int]
     total_cost: Optional[float]
+
+
+class CellData(BaseModel):
+    """Cell data for visualization."""
+
+    cell_id: int
+    generation: int
+    parent_cell_id: Optional[int]
+    dsl_genome: str
+    fitness: float
+    status: str
+    created_at: str
+
+
+class CellsResponse(BaseModel):
+    """Response containing cell data."""
+
+    cells: List[CellData]
+    total_count: int
+    database_path: Optional[str]
 
 
 # Server setup
@@ -209,6 +230,53 @@ async def get_callgraph():
         num_cached_tokens=metrics["num_cached_tokens"],
         total_cost=metrics["total_cost"],
     )
+
+
+@app.get("/api/cells", response_model=CellsResponse)
+async def get_cells(limit: int = 100, status: Optional[str] = None):
+    """Get cells from the evolution database."""
+    try:
+        # Try to find the cells database in the default location
+        db_path = Path("/home/agent/workdir/evolution/cells.db")
+
+        if not db_path.exists():
+            # Return empty response if database doesn't exist yet
+            return CellsResponse(
+                cells=[],
+                total_count=0,
+                database_path=None,
+            )
+
+        # Load cells from database
+        repo = CellRepository(db_path)
+        cells = repo.get_top_cells(limit=limit, status=status or 'online')
+
+        # Convert to response format
+        cell_data = [
+            CellData(
+                cell_id=cell.cell_id,
+                generation=cell.generation,
+                parent_cell_id=cell.parent_cell_id,
+                dsl_genome=cell.dsl_genome,
+                fitness=cell.fitness,
+                status=cell.status,
+                created_at=cell.created_at.isoformat() if cell.created_at else "",
+            )
+            for cell in cells
+        ]
+
+        return CellsResponse(
+            cells=cell_data,
+            total_count=repo.get_cell_count(),
+            database_path=str(db_path),
+        )
+    except Exception as e:
+        logger.error(f"Error fetching cells: {e}")
+        return CellsResponse(
+            cells=[],
+            total_count=0,
+            database_path=None,
+        )
 
 
 async def event_callback(event: Event | FileEvent):

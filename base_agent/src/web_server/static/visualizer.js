@@ -6,6 +6,7 @@ import { startUpdates } from "./store.js";
 import "./components/execution-tree.js";
 import "./components/event-stream.js";
 import "./components/metrics-display.js";
+import "./components/cell-list.js";
 import {
   toggleContent,
   toggleNode,

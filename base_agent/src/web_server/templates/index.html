@@ -27,23 +27,72 @@
       <!-- Main Content -->
       <div class="py-6">
         <div class="mx-auto px-4 sm:px-6 lg:px-8 max-w-7xl space-y-6">
-          <!-- Execution Tree -->
-          <div class="bg-white shadow rounded-lg overflow-hidden">
-            <div class="px-4 py-3 border-b border-gray-200 bg-gray-50">
-              <h2 class="text-lg font-medium text-gray-900">Execution Tree</h2>
-            </div>
-            <execution-tree class="block p-4"></execution-tree>
+          <!-- Tabs -->
+          <div class="border-b border-gray-200">
+            <nav class="-mb-px flex space-x-8" aria-label="Tabs">
+              <button
+                id="tab-callgraph"
+                class="tab-button border-b-2 border-blue-500 py-4 px-1 text-sm font-medium text-blue-600"
+                onclick="showTab('callgraph')"
+              >
+                Callgraph
+              </button>
+              <button
+                id="tab-cells"
+                class="tab-button border-b-2 border-transparent py-4 px-1 text-sm font-medium text-gray-500 hover:border-gray-300 hover:text-gray-700"
+                onclick="showTab('cells')"
+              >
+                Evolution Cells
+              </button>
+            </nav>
           </div>
 
-          <!-- Event Stream Log -->
-          <div class="bg-white shadow rounded-lg overflow-hidden">
-            <div class="px-4 py-3 border-b border-gray-200 bg-gray-50">
-              <h2 class="text-lg font-medium text-gray-900">Event Stream</h2>
+          <!-- Callgraph View -->
+          <div id="view-callgraph" class="space-y-6">
+            <!-- Execution Tree -->
+            <div class="bg-white shadow rounded-lg overflow-hidden">
+              <div class="px-4 py-3 border-b border-gray-200 bg-gray-50">
+                <h2 class="text-lg font-medium text-gray-900">Execution Tree</h2>
+              </div>
+              <execution-tree class="block p-4"></execution-tree>
             </div>
-            <event-stream class="block divide-y divide-gray-100"></event-stream>
+
+            <!-- Event Stream Log -->
+            <div class="bg-white shadow rounded-lg overflow-hidden">
+              <div class="px-4 py-3 border-b border-gray-200 bg-gray-50">
+                <h2 class="text-lg font-medium text-gray-900">Event Stream</h2>
+              </div>
+              <event-stream class="block divide-y divide-gray-100"></event-stream>
+            </div>
+          </div>
+
+          <!-- Cells View -->
+          <div id="view-cells" class="space-y-6" style="display: none;">
+            <div class="bg-gray-800 shadow rounded-lg overflow-hidden">
+              <div class="p-4">
+                <cell-list class="block"></cell-list>
+              </div>
+            </div>
           </div>
         </div>
       </div>
+
+      <script>
+        function showTab(tab) {
+          // Update tab buttons
+          document.getElementById('tab-callgraph').className = tab === 'callgraph'
+            ? 'tab-button border-b-2 border-blue-500 py-4 px-1 text-sm font-medium text-blue-600'
+            : 'tab-button border-b-2 border-transparent py-4 px-1 text-sm font-medium text-gray-500 hover:border-gray-300 hover:text-gray-700';
+
+          document.getElementById('tab-cells').className = tab === 'cells'
+            ? 'tab-button border-b-2 border-blue-500 py-4 px-1 text-sm font-medium text-blue-600'
+            : 'tab-button border-b-2 border-transparent py-4 px-1 text-sm font-medium text-gray-500 hover:border-gray-300 hover:text-gray-700';
+
+          // Update views
+          document.getElementById('view-callgraph').style.display = tab === 'callgraph' ? 'block' : 'none';
+          document.getElementById('view-cells').style.display = tab === 'cells' ? 'block' : 'none';
+        }
+      </script>
     </div>
   </body>
 </html>
