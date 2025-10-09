@@ -103,6 +103,100 @@ The web interface shows:
 - LLM cost per attempt
 - Event timeline per attempt
 
+## Cell Visualization (Future Enhancement)
+
+The web interface could be extended to show:
+
+### Cell Lineage Graph
+
+```javascript
+// Future feature: Interactive lineage tree
+<div id="lineage-graph">
+  Cell #1 (Gen 0) ─┬─ Cell #5 (Gen 12) ─── Cell #15 (Gen 34) ─── Cell #47 (Gen 89)
+                    │
+                    └─ Cell #8 (Gen 15) [extinct]
+</div>
+```
+
+### Pattern Taxonomy View
+
+```
+Volume Analysis (12 cells):
+  • Volume Spike Reversal - $18.45 avg
+  • Contrarian Volume Fade - $8.23 avg
+
+Mean Reversion (8 cells):
+  • Overbought Correction - $15.32 avg
+```
+
+### Cell Details Panel
+
+When clicking a cell in the execution tree:
+```
+Cell #47
+Generation: 89
+Fitness: $23.31
+Parent: Cell #15
+Status: online
+
+Genome:
+IF (EPSILON(0) / EPSILON(20)) > 1.5 AND DELTA(0) < DELTA(10) THEN BUY ELSE HOLD
+
+LLM Analysis:
+Name: Volume Spike Reversal
+Category: Volume Analysis
+Confidence: 0.85
+Hypothesis: Detects institutional accumulation during local dips...
+
+Phenotypes:
+  1H: 45 trades, 62.2% win rate, Sharpe 1.47
+  4H: 12 trades, 58.3% win rate, Sharpe 1.12
+  1D: 3 trades, 66.7% win rate, Sharpe 0.89
+```
+
+### Implementation Notes
+
+To add cell visualization to the web interface:
+
+1. **Backend** (`server.py`):
+```python
+@app.get("/api/cells")
+async def get_cells():
+    repo = CellRepository(db_path)
+    cells = repo.get_top_cells(limit=100)
+    return [cell.to_dict() for cell in cells]
+
+@app.get("/api/cells/{cell_id}/lineage")
+async def get_cell_lineage(cell_id: int):
+    repo = CellRepository(db_path)
+    lineage = repo.get_lineage(cell_id)
+    return [cell.to_dict() for cell in lineage]
+```
+
+2. **Frontend** (`static/components/cell-viewer.js`):
+```javascript
+class CellViewer extends BaseComponent {
+    async loadCells() {
+        const response = await fetch('/api/cells');
+        this.cells = await response.json();
+        this.render();
+    }
+
+    renderCell(cell) {
+        return `
+            <div class="cell" data-cell-id="${cell.cell_id}">
+                <div class="cell-id">Cell #${cell.cell_id}</div>
+                <div class="cell-fitness">$${cell.fitness.toFixed(2)}</div>
+                <div class="cell-name">${cell.llm_name || 'Unnamed'}</div>
+                <div class="cell-genome">${cell.dsl_genome}</div>
+            </div>
+        `;
+    }
+}
+```
+
+See `CELL_ARCHITECTURE.md` and `CELL_STORAGE_API.md` for data structures.
+
 ## Customizing the Display
 
 ### Add Trading Metrics to Web Interface

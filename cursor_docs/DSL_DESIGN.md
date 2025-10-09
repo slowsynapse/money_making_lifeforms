@@ -142,12 +142,108 @@ Top 5 Surviving Strategies:
 
 **Answer**: We don't know, and that's the point. The market told us it works. The "why" is for humans to reverse-engineer after the fact.
 
+## The LLM's Role: Naming What Evolution Discovers
+
+Here's the key insight: **The LLM doesn't design strategies. It interprets successful ones.**
+
+### After Evolution Finds a Winner
+
+When evolution discovers a profitable pattern like:
+```
+IF (EPSILON(0) / EPSILON(20)) > 1.5 AND DELTA(0) < DELTA(10) THEN BUY ELSE HOLD
+```
+
+The LLM's job is to:
+
+1. **Analyze what it does**:
+   - "Buys when current volume is 50%+ above 20-period average"
+   - "AND price is below 10-period value"
+   - "Detects institutional accumulation during local dips"
+
+2. **Name the pattern**:
+   - Just like humans created "MACD" and "RSI", the LLM creates: **"Volume Spike Reversal"**
+
+3. **Categorize it**:
+   - Category: "Volume Analysis"
+   - Related to: "Mean Reversion", "Accumulation Detection"
+
+4. **Explain why it might work**:
+   - "Large buyers enter during price weakness to minimize market impact. The volume spike indicates serious accumulation."
+
+5. **Propose variations**:
+   - "Try different lookback windows"
+   - "Add trade count confirmation"
+   - "Test on multiple timeframes"
+
+### Symbols Stay Abstract, Patterns Get Names
+
+**Critical distinction**:
+- The **genome** (DSL string) uses abstract symbols: `EPSILON`, `DELTA`
+- The **semantics** (LLM interpretation) gives it meaning: "Volume Spike Reversal"
+
+The symbols never get "fixed" meanings. `EPSILON` could end up in completely different contexts in different cells. The LLM interprets each cell individually.
+
+### Building a Pattern Taxonomy
+
+Over many generations, the LLM builds a library:
+
+```
+Volume Analysis:
+  - Volume Spike Reversal (12 cells, avg fitness: $18.45)
+  - Contrarian Volume Fade (5 cells, avg fitness: $8.23)
+
+Mean Reversion:
+  - Overbought Correction (8 cells, avg fitness: $15.32)
+  - Range-Bound Oscillation (3 cells, avg fitness: $7.11)
+
+Trend Following:
+  - Momentum Breakout (15 cells, avg fitness: $22.11)
+  - Higher High Continuation (6 cells, avg fitness: $14.56)
+```
+
+This taxonomy is **emergent** - discovered through actual market performance, not pre-defined by humans.
+
+### Why This Matters
+
+**Traditional approach**:
+1. Human names indicator ("RSI")
+2. Human defines what it should detect ("overbought/oversold")
+3. Test if it's profitable
+4. Usually isn't
+
+**Our approach**:
+1. Evolution finds profitable pattern
+2. LLM names it after the fact
+3. Pattern already proven profitable
+4. LLM helps understand why
+
+The LLM is a **reverse-engineering tool**, not a design tool.
+
+## Cell-Based Knowledge Accumulation
+
+Each successful strategy becomes a **cell** in the database with:
+- **Genome**: The DSL string (abstract symbols)
+- **Phenotype**: Market behavior (when/where it triggers)
+- **Fitness**: Economic performance
+- **Semantics**: LLM's interpretation (name, category, hypothesis)
+
+Over time, the system builds a library of cells. The LLM can:
+- Compare cells: "Cell #47 and Cell #51 both detect volume spikes, but #47 adds price confirmation"
+- Track evolution: "Cell #51 is an improved version of Cell #47"
+- Identify patterns: "15 cells all use EPSILON/AVG(EPSILON) - this is a robust pattern"
+
+See `CELL_ARCHITECTURE.md` for details on cell storage and `LLM_INTEGRATION.md` for how LLM analysis works.
+
 ## Summary
 
 - **Abstract symbols** (ALPHA, BETA, GAMMA...) have no predefined meaning
 - **Market selection** determines which combinations survive
-- **No human bias** about indicators or strategies
-- **Emergent discovery** of profitable patterns
-- **Pure evolutionary computation** driven by real economic constraints
+- **Evolution discovers** profitable structures through blind mutation
+- **LLM interprets** what was found and gives it human-readable names
+- **Pattern taxonomy** emerges from actual market performance
+- **No human bias** about what indicators "should" work
+- **Emergent discovery** driven by real economic constraints
 
-This is not "AI trading with technical indicators." This is **evolutionary search through strategy space with no priors**.
+This is not "AI trading with technical indicators." This is **evolutionary search through strategy space with no priors**, augmented by **LLM-powered pattern recognition and semantic labeling**.
+
+**Evolution finds. LLM names. Humans learn.**

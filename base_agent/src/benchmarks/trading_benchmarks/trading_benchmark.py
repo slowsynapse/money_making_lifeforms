@@ -10,16 +10,21 @@ from ...dsl.grammar import Action
 class TradingBenchmark(BaseBenchmark):
     """
     A benchmark for evaluating the agent's ability to generate profitable trading strategies.
-    
+
     Fitness = Trading Profit - Transaction Costs - LLM API Costs
-    
+
     The agent must generate more profit than it costs to run, or it "dies".
     """
     name: ClassVar[str] = "trading"
-    
+
     # Trading parameters - configurable
     INITIAL_CAPITAL: ClassVar[float] = 100.0  # Starting with $100 - HIGH PRESSURE!
-    TRANSACTION_COST: ClassVar[float] = 0.10   # $0.10 per trade
+
+    # Hyperliquid perpetuals fees (as of 2025)
+    # Taker fee: 0.045% (0.00045), Maker fee: 0.015% (0.00015)
+    # We assume all orders are taker orders (market orders)
+    TAKER_FEE_RATE: ClassVar[float] = 0.00045  # 0.045% taker fee
+    MAKER_FEE_RATE: ClassVar[float] = 0.00015  # 0.015% maker fee (not currently used)
     
     # Approximate Anthropic API pricing (Claude 3.5 Sonnet)
     # These are rough estimates in USD per token
@@ -216,11 +221,20 @@ Now generate your next strategy in `answer.txt`:**"""
             shutil.rmtree(agent_outputs)
             print(f"Cleaned old agent_outputs directory")
 
-        # Copy fresh market data
-        source_data_path = Path("benchmark_data/trading/ohlcv.csv")
+        # Copy fresh market data (use PURR data if available, fallback to synthetic)
+        purr_data_path = Path("benchmark_data/trading/purr_60d.csv")
+        synthetic_data_path = Path("benchmark_data/trading/ohlcv.csv")
+
+        if purr_data_path.exists():
+            source_data_path = purr_data_path
+            print(f"Using real PURR data from Hyperliquid")
+        else:
+            source_data_path = synthetic_data_path
+            print(f"Using synthetic OHLCV data (PURR data not found)")
+
         destination_data_path = problem_data_dir / "ohlcv.csv"
         destination_data_path.write_bytes(source_data_path.read_bytes())
-        print(f"Copied OHLCV data to {destination_data_path}")
+        print(f"Copied market data to {destination_data_path}")
 
     async def score_problem(
         self,
@@ -278,62 +292,97 @@ Now generate your next strategy in `answer.txt`:**"""
     def _run_backtest(self, program: list, market_data: pd.DataFrame) -> tuple[float, int, bool, str]:
         """
         Runs a backtest simulation with early termination on zero balance.
-        
-        Uses class-level INITIAL_CAPITAL and TRANSACTION_COST for consistency.
-        
+
+        Uses realistic Hyperliquid perpetuals fees (0.045% taker fee).
+        Now uses the full DataFrame with lookback support.
+
         Returns:
             tuple of (profit, num_trades, survived, log_message)
         """
         initial_capital = self.INITIAL_CAPITAL
         cash = initial_capital
         position = 0.0  # Number of shares/contracts held
-        transaction_cost = self.TRANSACTION_COST
         num_trades = 0
         survived = True
+        total_fees_paid = 0.0
 
-        for i, row in market_data.iterrows():
-            # Execute the DSL strategy
-            market_snapshot = row.to_dict()
-            action = self.interpreter.execute(program, market_snapshot)
-            
-            current_price = row['close']
-            
-            # Execute trading actions
-            if action == Action.BUY and cash > transaction_cost:
+        # Determine minimum start index based on max lookback in program
+        min_start_index = self._get_min_required_history(program)
+
+        for i in range(min_start_index, len(market_data)):
+            # Execute the DSL strategy with full DataFrame and current index
+            action = self.interpreter.execute(program, market_data, current_index=i)
+
+            current_price = market_data.iloc[i]['close']
+
+            # Execute trading actions with percentage-based fees
+            if action == Action.BUY and cash > 0:
                 # Buy with all available cash
-                position = (cash - transaction_cost) / current_price
+                # Fee is charged on the notional value
+                trade_value = cash
+                fee = trade_value * self.TAKER_FEE_RATE
+                position = (cash - fee) / current_price
                 cash = 0
                 num_trades += 1
-                
+                total_fees_paid += fee
+
             elif action == Action.SELL and position > 0:
                 # Sell entire position
-                cash = position * current_price - transaction_cost
+                trade_value = position * current_price
+                fee = trade_value * self.TAKER_FEE_RATE
+                cash = trade_value - fee
                 position = 0
                 num_trades += 1
-            
+                total_fees_paid += fee
+
             # Calculate current portfolio value
             portfolio_value = cash + (position * current_price)
-            
+
             # SURVIVAL CHECK: If portfolio value hits zero or below, agent dies
             if portfolio_value <= 0:
                 survived = False
-                log = f"Agent died on day {i+1}. Portfolio value: ${portfolio_value:.2f}. Balance went to zero."
+                log = f"Agent died on candle {i+1}/{len(market_data)}. Portfolio value: ${portfolio_value:.2f}. Balance went to zero."
                 return -initial_capital, num_trades, survived, log
-        
+
         # At the end, liquidate any remaining position
         if position > 0:
-            cash = position * market_data.iloc[-1]['close']
+            final_position_value = position * market_data.iloc[-1]['close']
+            final_fee = final_position_value * self.TAKER_FEE_RATE
+            cash = final_position_value - final_fee
             position = 0
-        
+            total_fees_paid += final_fee
+
         final_capital = cash
         trading_profit = final_capital - initial_capital
-        
+
         log = (
             f"Backtest complete. Initial: ${initial_capital:.2f}, "
-            f"Final: ${final_capital:.2f}, Profit: ${trading_profit:.2f}"
+            f"Final: ${final_capital:.2f}, Profit: ${trading_profit:.2f}, "
+            f"Fees: ${total_fees_paid:.2f} ({num_trades} trades), "
+            f"Traded on {len(market_data) - min_start_index} candles (skipped first {min_start_index} for lookback)"
         )
-        
+
         return trading_profit, num_trades, survived, log
+
+    def _get_min_required_history(self, program: list) -> int:
+        """
+        Calculate the minimum number of historical candles required before we can start trading.
+
+        This is the maximum lookback parameter used in any rule.
+
+        Args:
+            program: Parsed DSL program
+
+        Returns:
+            Minimum start index (e.g., if max param is 50, return 50)
+        """
+        max_lookback = 0
+
+        for rule in program:
+            max_lookback = max(max_lookback, rule.condition.param1, rule.condition.param2)
+
+        # Return at least 1 to avoid edge cases
+        return max(1, max_lookback)
 
     def update_state(self, trading_profit: float, llm_cost: float, survived: bool):
         """

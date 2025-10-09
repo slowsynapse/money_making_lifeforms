@@ -1,4 +1,5 @@
 import re
+import pandas as pd
 from collections import Counter
 from .grammar import Indicator, Operator, Action, Condition, Rule, DslProgram, AggregationMode
 
@@ -75,12 +76,18 @@ class DslInterpreter:
                 return op
         raise ValueError(f"Invalid operator: {op_str}")
 
-    def execute(self, program: DslProgram, market_data: dict) -> Action:
+    def execute(self, program: DslProgram, market_data: pd.DataFrame, current_index: int = None) -> Action:
         """
         Executes a parsed DSL program against the current market data.
         If program contains multiple rules, aggregates their signals according to aggregation_mode.
 
-        market_data is a placeholder for a single time-step (e.g., one day's OHLCV).
+        Args:
+            program: Parsed DSL program (list of rules)
+            market_data: Full DataFrame with OHLCV columns, or dict for backward compatibility
+            current_index: Row index for current decision point (required if market_data is DataFrame)
+
+        Returns:
+            Action (BUY, SELL, or HOLD)
         """
         if not program:
             return Action.HOLD
@@ -88,20 +95,83 @@ class DslInterpreter:
         # Execute each rule and collect their actions
         actions = []
         for rule in program:
-            action = self._execute_single_rule(rule, market_data)
+            action = self._execute_single_rule(rule, market_data, current_index)
             actions.append(action)
 
         # Aggregate the actions
         return self._aggregate_actions(actions)
 
-    def _execute_single_rule(self, rule: Rule, market_data: dict) -> Action:
-        """Execute a single rule and return its action."""
-        # --- Placeholder Indicator Calculation ---
-        # In the future, this will calculate real indicator values from market_data.
-        # For now, let's use dummy values to make the logic work.
-        indicator1_value = 100 # e.g., market_data['alpha_10']
-        indicator2_value = 98  # e.g., market_data['beta_50']
+    # Mapping of abstract symbols to OHLCV columns
+    SYMBOL_TO_COLUMN = {
+        Indicator.ALPHA: 'open',
+        Indicator.BETA: 'high',
+        Indicator.GAMMA: 'low',
+        Indicator.DELTA: 'close',
+        Indicator.EPSILON: 'volume',
+        Indicator.ZETA: 'trades',
+        Indicator.OMEGA: 'funding_rate',
+        Indicator.PSI: 'open_interest',
+    }
 
+    def _get_indicator_value(
+        self,
+        indicator: Indicator,
+        param: int,
+        market_data: pd.DataFrame,
+        current_index: int
+    ) -> float:
+        """
+        Get indicator value with lookback.
+
+        Args:
+            indicator: The abstract symbol (ALPHA, BETA, etc.)
+            param: Lookback period (0 = current, N = N candles ago)
+            market_data: Full DataFrame with OHLCV data
+            current_index: Current row index
+
+        Returns:
+            Float value from the appropriate column and lookback offset
+        """
+        # Calculate lookback index
+        lookback_index = current_index - param
+
+        # Safety: Don't look back before data starts
+        if lookback_index < 0:
+            lookback_index = 0
+
+        # Get the column name for this symbol
+        column = self.SYMBOL_TO_COLUMN[indicator]
+
+        # Return the value
+        return float(market_data.iloc[lookback_index][column])
+
+    def _execute_single_rule(self, rule: Rule, market_data: pd.DataFrame | dict, current_index: int = None) -> Action:
+        """Execute a single rule and return its action."""
+
+        # Backward compatibility: if market_data is a dict, use dummy values
+        if isinstance(market_data, dict):
+            indicator1_value = 100
+            indicator2_value = 98
+        else:
+            # New path: use real market data with lookback
+            if current_index is None:
+                raise ValueError("current_index must be provided when market_data is a DataFrame")
+
+            indicator1_value = self._get_indicator_value(
+                rule.condition.indicator1,
+                rule.condition.param1,
+                market_data,
+                current_index
+            )
+
+            indicator2_value = self._get_indicator_value(
+                rule.condition.indicator2,
+                rule.condition.param2,
+                market_data,
+                current_index
+            )
+
+        # Evaluate the condition
         condition_met = False
         op = rule.condition.operator
         if op == Operator.GREATER_THAN:

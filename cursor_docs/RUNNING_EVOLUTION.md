@@ -2,34 +2,73 @@
 
 ## Quick Start
 
-The system has two modes:
+The system has three modes:
 
-1. **Evolution Mode** (Trading DSL) - Strategies evolve through mutation
-2. **Meta-Agent Mode** (Traditional) - Agent modifies its own code
+1. **Evolution Mode** (Offline, Free) - Pure mutation-based evolution, no LLM costs
+2. **Trading-Learn Mode** (LLM-Powered) - Combines evolution with pattern analysis
+3. **Meta-Agent Mode** (Traditional) - Agent modifies its own code (deprecated for trading)
 
 ## Running Trading Evolution
 
-### Option 1: Full Evolutionary Loop
+### Option 1: Evolution Mode (Offline, Free)
 
-This runs multiple generations automatically:
+Pure natural selection with no LLM costs after Gen 0:
 
 ```bash
-# Run 10 generations of evolution
-python runner.py --evolution-mode --iterations 10 --workers 4
+# Inside Docker container
+docker run --rm \
+  -v ${PWD}/base_agent:/home/agent/agent_code:ro \
+  -v ${PWD}/benchmark_data:/home/agent/benchmark_data:ro \
+  -v ${PWD}/results/interactive_output:/home/agent/workdir:rw \
+  sica_sandbox \
+  python -m agent_code.agent trading-evolve -g 50 -f 100.0
 ```
 
 **What happens:**
-- Generation 0: Creates a random initial DSL strategy
-- Generations 1-9: Each iteration:
-  1. Runs the current strategy on the trading benchmark
-  2. Calculates fitness (profit - costs)
-  3. If fitness > 0, strategy survives
-  4. Mutates the best strategy to create the next generation
-  5. Repeats
+- Generation 0: Random initial strategy → Backtest → Birth Cell #1
+- Generations 1-50:
+  1. Mutate best cell
+  2. Backtest on 1H, 4H, 1D data
+  3. If better → Birth new cell
+  4. If worse → Record failure (statistics only)
+  5. Repeat
 
-**Monitoring:**
-- Watch the logs for fitness scores and mutations
-- Results saved to `results/run_X/agent_Y/benchmarks/trading/`
+**Output:**
+- Cell database: `results/interactive_output/evolution/cells.db`
+- Best strategy: `results/interactive_output/evolution/best_strategy.txt`
+- Summary: `results/interactive_output/evolution/evolution_summary.txt`
+
+**Cost**: $0 after Gen 0 (no LLM calls)
+
+### Option 2: Trading-Learn Mode (LLM-Powered)
+
+Combines evolution with pattern discovery:
+
+```bash
+docker run --rm -p 8080:8080 \
+  -v ${PWD}/base_agent:/home/agent/agent_code:ro \
+  -v ${PWD}/benchmark_data:/home/agent/benchmark_data:ro \
+  -v ${PWD}/results/interactive_output:/home/agent/workdir:rw \
+  --env-file .env \
+  sica_sandbox \
+  python -m agent_code.agent trading-learn --iterations 10 --server
+```
+
+**What happens:**
+- Each iteration:
+  1. LLM generates/mutates strategy
+  2. Backtest on real data
+  3. If fitness > 0 → Birth cell + LLM analyzes pattern
+  4. Store semantic analysis (name, category, hypothesis)
+  5. LLM proposes intelligent mutations for next round
+
+**Output:**
+- Cell database with LLM analysis
+- Pattern taxonomy
+- Mutation proposals
+
+**Cost**: ~$0.02 per iteration (LLM generation + analysis)
+**Advantage**: Faster convergence, interpretable patterns
 
 ### Option 2: Interactive Single Generation
 
@@ -60,19 +99,81 @@ python runner.py --evolution-mode --iterations 1
 python runner.py test --name trading
 ```
 
-## Viewing Results
+## Querying the Cell Database
 
-### Check Fitness Scores
+All successful strategies are stored in SQLite. Here's how to explore them:
+
+### View Top Cells
 
 ```bash
-# View results for a specific generation
-cat results/run_1/agent_0/benchmarks/trading/results.jsonl | jq .
+# Top 10 by fitness
+sqlite3 results/interactive_output/evolution/cells.db \
+  "SELECT cell_id, fitness, llm_name, generation FROM cells WHERE status='online' ORDER BY fitness DESC LIMIT 10"
+```
 
-# See the strategy that was tested
-cat results/run_1/agent_0/benchmarks/trading/trend_following_1/answer/answer.txt
+### Get Cell Details
 
-# See the full discussion (fitness breakdown)
-cat results/run_1/agent_0/benchmarks/trading/results.jsonl | jq -r '.discussion'
+```bash
+# Full cell information
+sqlite3 results/interactive_output/evolution/cells.db \
+  "SELECT * FROM cells WHERE cell_id=47"
+```
+
+### Trace Cell Lineage
+
+```python
+from base_agent.src.storage.cell_repository import CellRepository
+from pathlib import Path
+
+repo = CellRepository(Path("results/interactive_output/evolution/cells.db"))
+
+# Get ancestry
+lineage = repo.get_lineage(cell_id=47)
+
+print("Lineage:")
+for i, cell in enumerate(lineage):
+    indent = "  " * i
+    print(f"{indent}└─ Cell #{cell.cell_id} (Gen {cell.generation}): ${cell.fitness:.2f}")
+```
+
+Output:
+```
+Lineage:
+└─ Cell #1 (Gen 0): $6.17
+  └─ Cell #5 (Gen 12): $15.32
+    └─ Cell #15 (Gen 34): $18.45
+      └─ Cell #47 (Gen 89): $23.31
+```
+
+### Find Unanalyzed Cells
+
+```python
+# Get cells needing LLM analysis
+unanalyzed = repo.find_unanalyzed_cells(limit=10, min_fitness=5.0)
+
+for cell in unanalyzed:
+    print(f"Cell #{cell.cell_id}: {cell.genome} (${cell.fitness:.2f})")
+```
+
+### View Pattern Taxonomy
+
+```bash
+# Get all discovered patterns
+sqlite3 results/interactive_output/evolution/cells.db \
+  "SELECT pattern_name, category, cells_using_pattern, avg_fitness FROM discovered_patterns ORDER BY avg_fitness DESC"
+```
+
+### Get Cells by Pattern
+
+```bash
+# Find all "Volume Analysis" cells
+sqlite3 results/interactive_output/evolution/cells.db \
+  "SELECT c.cell_id, c.fitness, c.llm_name
+   FROM cells c
+   JOIN cell_patterns cp ON c.cell_id = cp.cell_id
+   JOIN discovered_patterns dp ON cp.pattern_id = dp.pattern_id
+   WHERE dp.category='Volume Analysis'
+   ORDER BY c.fitness DESC"
 ```
 
 ### Watch Evolution Progress

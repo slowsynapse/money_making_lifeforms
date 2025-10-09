@@ -6,6 +6,8 @@ This self-improving agent system uses a **natural selection** model based on tra
 
 The agent generates strategies in an **abstract symbolic DSL** with no predefined technical analysis concepts, allowing pure evolutionary discovery.
 
+**New: Cell-Based Architecture** - Successful strategies are saved as "cells" with unique IDs, lineage tracking, and LLM-assigned semantic meaning. See `CELL_ARCHITECTURE.md` for details.
+
 ## Core Concept: Fitness = Profit - Costs
 
 The agent's fitness is calculated as:
@@ -95,7 +97,7 @@ For a typical DSL generation task:
 
 This is currently a rough estimate. In production, we would use actual token counts from the agent's metering system.
 
-## The Evolutionary Loop
+## The Evolutionary Loop (Updated with Cells)
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -104,23 +106,36 @@ This is currently a rough estimate. In production, we would use actual token cou
 
 1. Agent generates a DSL trading strategy (abstract symbols)
    ↓
-2. Strategy is backtested on historical OHLCV data
+2. Strategy is backtested on historical OHLCV data (1H, 4H, 1D)
    ↓
 3. Real-time survival check:
    - Balance hits $0? → DIES (score = -10000)
    - Balance remains positive? → Continue
    ↓
 4. Calculate fitness:
-   Fitness = Trading Profit - LLM Cost
+   Fitness = Trading Profit - Transaction Fees - LLM Cost
    ↓
 5. Evolutionary selection:
-   - Fitness > 0? → Strategy SURVIVES and propagates
-   - Fitness ≤ 0? → Strategy DIES and is discarded
+   - Fitness > 0 OR > parent? → BIRTH CELL (saved to database)
+   - Fitness ≤ 0 AND ≤ parent? → RECORD FAILURE (statistics only)
    ↓
-6. Mutate the surviving strategy (change operators, symbols, actions)
+6. If cell birthed:
+   - Store genome (DSL string)
+   - Record phenotype (market behavior per timeframe)
+   - Track lineage (parent cell ID)
+   - [Optional] LLM analyzes and names pattern
    ↓
-7. Repeat from step 1
+7. Mutate the best cell (80% random, 20% LLM-guided if available)
+   ↓
+8. Repeat from step 1
 ```
+
+**Key Changes**:
+- **Cells vs Failures**: Only survivors become cells with IDs
+- **Multi-timeframe**: Test on 1H, 4H, 1D data
+- **Persistent storage**: Cells saved in SQLite database
+- **LLM analysis**: Successful cells optionally analyzed for pattern discovery
+- **Guided mutations**: LLM can propose intelligent variations
 
 ## No Gradients, No Labels, No Supervised Loss, No Human Bias
 
@@ -238,14 +253,56 @@ We have comprehensive tests in `base_agent/tests/benchmarks/test_trading_benchma
 3. **test_score_problem_invalid_dsl**: Agent dies when DSL is unparseable
 4. **test_score_problem_no_data_file**: Agent dies when market data is missing
 
+## Cell Database Integration
+
+All successful strategies are stored in a SQLite database at `/home/agent/workdir/evolution/cells.db`.
+
+### Query Examples
+
+**Get top 10 cells**:
+```bash
+sqlite3 results/interactive_output/evolution/cells.db "SELECT cell_id, fitness, llm_name FROM cells WHERE status='online' ORDER BY fitness DESC LIMIT 10"
+```
+
+**Trace lineage of a cell**:
+```python
+from base_agent.src.storage.cell_repository import CellRepository
+
+repo = CellRepository(db_path)
+lineage = repo.get_lineage(cell_id=47)
+
+for ancestor in lineage:
+    print(f"Cell #{ancestor.cell_id} (Gen {ancestor.generation}): ${ancestor.fitness:.2f}")
+```
+
+**Find cells needing LLM analysis**:
+```python
+unanalyzed = repo.find_unanalyzed_cells(limit=10, min_fitness=5.0)
+```
+
+See `DATABASE_SCHEMA.md` for complete schema and `CELL_STORAGE_API.md` for Python API.
+
+## Multi-Timeframe Testing
+
+Strategies are now tested on three timeframes:
+- **1H**: 720 candles (30 days) - Entry precision
+- **4H**: 180 candles (30 days) - Trend context
+- **1D**: 30 candles (30 days) - Regime filter
+
+**Total data per symbol**: ~930 candles, ~112 KB
+
+Each cell has separate phenotype records per timeframe, allowing LLM to identify:
+- "This pattern works on 1H but fails on 1D"
+- "Cross-timeframe strategy: 4H trend, 1H entry"
+
 ## Future Enhancements
 
-1. **Real Token Tracking**: Replace estimated LLM costs with actual token counts from the agent's metering system
-2. **Dynamic Initial Capital**: Adjust starting capital based on agent performance history
-3. **Multi-Asset Backtesting**: Test strategies across multiple trading pairs
-4. **Real-Time Data Integration**: Connect to Hyperliquid API for live data
-5. **Advanced Mutations**: Implement more sophisticated DSL mutation strategies (add/remove branches, change indicators, etc.)
-6. **Population-Based Evolution**: Run multiple agent instances simultaneously and breed the best performers
+1. **DSL V2**: Add arithmetic (`+`, `-`, `*`, `/`) and aggregations (`AVG`, `MAX`, `STD`) - See `DSL_V2_SPEC.md`
+2. **Real Token Tracking**: Replace estimated LLM costs with actual token counts from the agent's metering system
+3. **Walk-Forward Validation**: Train on 20 days, test on next 10 days
+4. **Multi-Symbol Robustness**: Test same cell on PURR, HFUN, BTC to check generalization
+5. **Pattern Taxonomy**: Build library of LLM-discovered patterns
+6. **Population-Based Evolution**: Run multiple independent lineages, cross-breed winners
 
 ## Key Files
 
