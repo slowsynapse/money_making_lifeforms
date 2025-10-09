@@ -1,11 +1,12 @@
 import pandas as pd
-from typing import ClassVar
+from typing import ClassVar, Dict, Optional, Tuple
 from pathlib import Path
 
 from ..base import BaseBenchmark, Problem
 from ...dsl.interpreter import DslInterpreter
 from ...dsl.mutator import DslMutator
 from ...dsl.grammar import Action
+from ...storage.models import CellPhenotype
 
 class TradingBenchmark(BaseBenchmark):
     """
@@ -383,6 +384,220 @@ Now generate your next strategy in `answer.txt`:**"""
 
         # Return at least 1 to avoid edge cases
         return max(1, max_lookback)
+
+    def run_multi_timeframe_backtest(
+        self,
+        program: list,
+        multi_tf_data: Dict[str, pd.DataFrame],
+        symbol: str,
+    ) -> Tuple[float, Dict[str, CellPhenotype], str]:
+        """
+        Run backtest across multiple timeframes and return best fitness.
+
+        This is the key method for cell-based evolution. It tests a strategy
+        on 1H, 4H, and 1D data and selects the best performing timeframe.
+
+        Args:
+            program: Parsed DSL program
+            multi_tf_data: Dictionary mapping timeframe to DataFrame
+                          Example: {'1h': df_1h, '4h': df_4h, '1d': df_1d}
+            symbol: Trading symbol (e.g., 'PURR')
+
+        Returns:
+            tuple of:
+            - best_fitness: Best fitness across all timeframes
+            - phenotypes: Dict mapping timeframe to CellPhenotype
+            - log: Human-readable summary
+
+        Example:
+            data = fetcher.fetch_multi_timeframe('PURR')
+            fitness, phenotypes, log = benchmark.run_multi_timeframe_backtest(
+                program, data, 'PURR'
+            )
+            # fitness is the best result across 1H, 4H, 1D
+            # phenotypes contains detailed metrics for each timeframe
+        """
+        phenotypes = {}
+        best_fitness = float('-inf')
+        best_timeframe = None
+
+        for timeframe, market_data in multi_tf_data.items():
+            # Run backtest on this timeframe
+            trading_profit, num_trades, survived, backtest_log = self._run_backtest(
+                program, market_data
+            )
+
+            # Calculate fitness (profit minus LLM cost)
+            # Note: We only subtract LLM cost once, not per timeframe
+            # The LLM cost is amortized across all timeframe tests
+            estimated_llm_cost = 0.0165  # Rough estimate
+            fitness = trading_profit  # Don't subtract LLM cost yet - do it at cell level
+
+            # Calculate detailed metrics for phenotype
+            phenotype = self._calculate_phenotype(
+                program=program,
+                market_data=market_data,
+                symbol=symbol,
+                timeframe=timeframe,
+                trading_profit=trading_profit,
+                num_trades=num_trades,
+                survived=survived,
+            )
+
+            phenotypes[timeframe] = phenotype
+
+            # Track best timeframe
+            if fitness > best_fitness:
+                best_fitness = fitness
+                best_timeframe = timeframe
+
+        # Create summary log
+        log = f"Multi-timeframe backtest results:\n"
+        for tf, phenotype in phenotypes.items():
+            marker = "✓" if tf == best_timeframe else " "
+            log += f"{marker} {tf}: ${phenotype.total_profit:.2f} profit, {phenotype.total_trades} trades, {phenotype.win_rate:.1%} win rate\n"
+        log += f"Best timeframe: {best_timeframe} with ${best_fitness:.2f} profit"
+
+        return best_fitness, phenotypes, log
+
+    def _calculate_phenotype(
+        self,
+        program: list,
+        market_data: pd.DataFrame,
+        symbol: str,
+        timeframe: str,
+        trading_profit: float,
+        num_trades: int,
+        survived: bool,
+    ) -> CellPhenotype:
+        """
+        Calculate detailed phenotype metrics for a backtest.
+
+        This creates the CellPhenotype object that stores market behavior data.
+
+        Args:
+            program: Parsed DSL program
+            market_data: Market data DataFrame
+            symbol: Trading symbol
+            timeframe: Timeframe string (e.g., '1h')
+            trading_profit: Total profit from backtest
+            num_trades: Number of trades executed
+            survived: Whether the strategy survived
+
+        Returns:
+            CellPhenotype object (phenotype_id and cell_id will be 0 initially)
+        """
+        # Run a detailed backtest to collect trade statistics
+        initial_capital = self.INITIAL_CAPITAL
+        cash = initial_capital
+        position = 0.0
+        trades = []  # Store individual trade results
+        total_fees_paid = 0.0
+        profitable_trades = 0
+        losing_trades = 0
+
+        min_start_index = self._get_min_required_history(program)
+        portfolio_values = []
+
+        for i in range(min_start_index, len(market_data)):
+            action = self.interpreter.execute(program, market_data, current_index=i)
+            current_price = market_data.iloc[i]['close']
+
+            # Track trade entry/exit
+            if action == Action.BUY and cash > 0:
+                entry_price = current_price
+                trade_value = cash
+                fee = trade_value * self.TAKER_FEE_RATE
+                position = (cash - fee) / current_price
+                cash = 0
+                total_fees_paid += fee
+                trades.append({'type': 'BUY', 'price': entry_price, 'index': i})
+
+            elif action == Action.SELL and position > 0:
+                exit_price = current_price
+                trade_value = position * current_price
+                fee = trade_value * self.TAKER_FEE_RATE
+                cash = trade_value - fee
+                position = 0
+                total_fees_paid += fee
+
+                # Calculate profit/loss for this trade
+                if trades and trades[-1]['type'] == 'BUY':
+                    entry = trades[-1]
+                    trade_profit = (exit_price - entry['price']) * (trade_value / exit_price)
+                    if trade_profit > 0:
+                        profitable_trades += 1
+                    else:
+                        losing_trades += 1
+
+                trades.append({'type': 'SELL', 'price': exit_price, 'index': i})
+
+            # Track portfolio value for drawdown calculation
+            portfolio_value = cash + (position * current_price)
+            portfolio_values.append(portfolio_value)
+
+        # Calculate max drawdown and max runup
+        max_drawdown = 0.0
+        max_runup = 0.0
+        peak_value = initial_capital
+        trough_value = initial_capital
+
+        for value in portfolio_values:
+            if value > peak_value:
+                # New peak - calculate drawdown from previous peak
+                if peak_value > 0:
+                    drawdown = (peak_value - trough_value) / peak_value
+                    max_drawdown = max(max_drawdown, drawdown)
+                peak_value = value
+                trough_value = value
+            elif value < trough_value:
+                trough_value = value
+
+            if value < trough_value:
+                # New trough - calculate runup from previous trough
+                if trough_value > 0:
+                    runup = (peak_value - trough_value) / trough_value
+                    max_runup = max(max_runup, runup)
+
+        # Calculate win rate
+        total_closed_trades = profitable_trades + losing_trades
+        win_rate = profitable_trades / total_closed_trades if total_closed_trades > 0 else 0.0
+
+        # Calculate profit factor (gross profit / gross loss)
+        profit_factor = None  # Would need to track gross profits and losses separately
+
+        # Calculate average trade metrics
+        avg_profit_per_trade = trading_profit / total_closed_trades if total_closed_trades > 0 else 0.0
+
+        # Data range
+        data_start_date = str(market_data.iloc[0]['timestamp']) if 'timestamp' in market_data.columns else None
+        data_end_date = str(market_data.iloc[-1]['timestamp']) if 'timestamp' in market_data.columns else None
+
+        return CellPhenotype(
+            phenotype_id=0,  # Will be set by repository
+            cell_id=0,  # Will be set by repository
+            symbol=symbol,
+            timeframe=timeframe,
+            data_start_date=data_start_date,
+            data_end_date=data_end_date,
+            total_trades=num_trades,
+            profitable_trades=profitable_trades,
+            losing_trades=losing_trades,
+            total_profit=trading_profit,
+            total_fees=total_fees_paid,
+            max_drawdown=max_drawdown if max_drawdown > 0 else None,
+            max_runup=max_runup if max_runup > 0 else None,
+            sharpe_ratio=None,  # Would need returns series to calculate
+            sortino_ratio=None,  # Would need returns series to calculate
+            win_rate=win_rate if total_closed_trades > 0 else None,
+            profit_factor=profit_factor,
+            avg_trade_duration_hours=None,  # Would need to track trade durations
+            avg_profit_per_trade=avg_profit_per_trade if total_closed_trades > 0 else None,
+            avg_loss_per_trade=None,  # Would need to track separately
+            longest_winning_streak=None,  # Would need to track streaks
+            longest_losing_streak=None,  # Would need to track streaks
+            trigger_conditions=None,  # Could store JSON of trigger analysis
+        )
 
     def update_state(self, trading_profit: float, llm_cost: float, survived: bool):
         """

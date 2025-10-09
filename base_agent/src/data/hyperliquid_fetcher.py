@@ -2,12 +2,14 @@
 Hyperliquid API data fetcher for OHLCV historical data.
 
 Fetches candle data from Hyperliquid's perpetuals exchange API.
+Supports multi-timeframe data fetching for evolution testing.
 """
 
 import requests
 import pandas as pd
 from pathlib import Path
 from datetime import datetime, timedelta
+from typing import Dict, List
 import time
 
 
@@ -18,6 +20,7 @@ class HyperliquidDataFetcher:
 
     def __init__(self):
         self.session = requests.Session()
+        self._cache: Dict[str, pd.DataFrame] = {}  # Cache for avoiding re-fetches
 
     def fetch_historical_ohlcv(
         self,
@@ -84,6 +87,106 @@ class HyperliquidDataFetcher:
         except (KeyError, ValueError) as e:
             print(f"❌ Error parsing Hyperliquid response: {e}")
             raise
+
+    def fetch_multi_timeframe(
+        self,
+        symbol: str,
+        timeframes: List[str] = ['1h', '4h', '1d'],
+        lookback_days: int = 30,
+    ) -> Dict[str, pd.DataFrame]:
+        """
+        Fetch data for multiple timeframes at once.
+
+        This is the primary method for evolution testing. It fetches data for
+        1H, 4H, and 1D timeframes and aligns them to the same time period.
+
+        Args:
+            symbol: Trading pair symbol (e.g., "PURR")
+            timeframes: List of timeframes to fetch (default: ['1h', '4h', '1d'])
+            lookback_days: Number of days of data to fetch (default: 30)
+
+        Returns:
+            Dictionary mapping timeframe to DataFrame
+            Example: {'1h': df_1h, '4h': df_4h, '1d': df_1d}
+
+        Example:
+            fetcher = HyperliquidDataFetcher()
+            data = fetcher.fetch_multi_timeframe('PURR', lookback_days=30)
+
+            # Test strategy on all timeframes
+            for tf, df in data.items():
+                fitness = backtest_strategy(strategy, df)
+                print(f"{tf}: ${fitness:.2f}")
+        """
+        print(f"Fetching multi-timeframe data for {symbol} ({', '.join(timeframes)})...")
+
+        result = {}
+        for tf in timeframes:
+            # Check cache first
+            cache_key = f"{symbol}_{tf}_{lookback_days}d"
+            if cache_key in self._cache:
+                print(f"  Using cached data for {tf}")
+                result[tf] = self._cache[cache_key]
+                continue
+
+            # Fetch fresh data
+            try:
+                df = self.fetch_historical_ohlcv(
+                    symbol=symbol,
+                    interval=tf,
+                    lookback_days=lookback_days,
+                )
+                result[tf] = df
+                self._cache[cache_key] = df
+
+            except Exception as e:
+                print(f"  ⚠️ Failed to fetch {tf} data: {e}")
+                # Continue with other timeframes even if one fails
+                continue
+
+        # Verify we have at least some data
+        if not result:
+            raise ValueError(f"Failed to fetch any timeframe data for {symbol}")
+
+        # Align timestamps to common end date
+        result = self._align_timeframes(result)
+
+        print(f"✓ Fetched {len(result)} timeframes for {symbol}")
+        for tf, df in result.items():
+            print(f"  {tf}: {len(df)} candles")
+
+        return result
+
+    def _align_timeframes(self, data: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
+        """
+        Align timeframes to the same end timestamp.
+
+        Ensures all timeframes end at the same time, so strategies can be
+        tested fairly across different granularities.
+
+        Args:
+            data: Dictionary of timeframe -> DataFrame
+
+        Returns:
+            Dictionary with aligned DataFrames
+        """
+        if not data:
+            return data
+
+        # Find the earliest end timestamp across all timeframes
+        min_end_timestamp = min(df['timestamp'].iloc[-1] for df in data.values())
+
+        # Truncate all dataframes to end at the same timestamp
+        aligned = {}
+        for tf, df in data.items():
+            aligned_df = df[df['timestamp'] <= min_end_timestamp].copy()
+            aligned[tf] = aligned_df
+
+        return aligned
+
+    def clear_cache(self):
+        """Clear the internal cache of fetched data."""
+        self._cache.clear()
 
     def _parse_candles(self, data: list) -> pd.DataFrame:
         """
