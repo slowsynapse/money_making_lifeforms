@@ -1,0 +1,21 @@
+# Exclude results directory containing evolution outputs and CSV data
+# This prevents large CSV files (OHLCV market data) from being indexed
+results/
+
+# Exclude Python cache and compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Exclude virtual environments
+venv/
+env/
+.venv/
+
+# Exclude logs
+logs/
+*.log
+
+# Exclude git directory
+.git/

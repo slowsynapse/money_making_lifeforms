@@ -377,10 +377,30 @@ Now generate your next strategy in `answer.txt`:**"""
         Returns:
             Minimum start index (e.g., if max param is 50, return 50)
         """
-        max_lookback = 0
+        from ...dsl.grammar import CompoundCondition, Condition, FunctionCall, IndicatorValue
 
+        def get_lookback_from_condition(cond):
+            """Recursively extract max lookback from a condition (handles simple and compound)."""
+            if isinstance(cond, CompoundCondition):
+                # Recursively get lookback from left and right subconditions
+                left_lookback = get_lookback_from_condition(cond.left)
+                right_lookback = get_lookback_from_condition(cond.right)
+                return max(left_lookback, right_lookback)
+            elif isinstance(cond, Condition):
+                # Simple condition - extract from left and right expressions
+                max_val = 0
+                for expr in [cond.left, cond.right]:
+                    if isinstance(expr, IndicatorValue):
+                        max_val = max(max_val, expr.param or 0)
+                    elif isinstance(expr, FunctionCall):
+                        max_val = max(max_val, expr.window or 0)
+                return max_val
+            return 0
+
+        max_lookback = 0
         for rule in program:
-            max_lookback = max(max_lookback, rule.condition.param1, rule.condition.param2)
+            rule_lookback = get_lookback_from_condition(rule.condition)
+            max_lookback = max(max_lookback, rule_lookback)
 
         # Return at least 1 to avoid edge cases
         return max(1, max_lookback)

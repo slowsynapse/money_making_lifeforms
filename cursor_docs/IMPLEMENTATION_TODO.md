@@ -227,9 +227,24 @@ The following components were **built from scratch** for this cell-based trading
 **Estimated time**: 3-4 days
 **Files**: `base_agent/src/dsl/*.py`
 
-## Phase 5: Query Tools and Analysis
+## Phase 5: Query Tools and Analysis (⏸️ DEFERRED)
 
-### 5.1 CLI Query Tool
+**Status**: ⏸️ **DEFERRED** - Not needed immediately
+
+**Rationale**:
+- **CLI query tool is redundant**: `sqlite3` command-line tool + `DATABASE_SCHEMA.md` (lines 382-523) already document all queries
+- **Analysis scripts duplicate Phase 6**: Web interface (real-time analytics) is more valuable than post-mortem CLI reports
+- **Better alternatives exist**:
+  - Use `sqlite3` directly for quick queries
+  - Use Python REPL with `CellRepository` for programmatic access
+  - Create Jupyter notebook for exploratory analysis (10 minutes to set up)
+- **Vision captured in docs**: See `WEB_INTERFACE.md` "Evolution Analysis Dashboard" section for what this analysis should look like when built into Phase 6
+
+**Recommendation**: Skip Phase 5 entirely, or defer to "Phase 9: Nice-to-Haves" after Phases 4, 6, 7 are complete. Focus on **DSL enhancements** (Sprint 4) and **web interface extensions** (Phase 6) instead.
+
+---
+
+### 5.1 CLI Query Tool (DEFERRED)
 - [ ] Create `query_cells.py` script
   - [ ] Command: `python query_cells.py top --limit 10`
   - [ ] Command: `python query_cells.py lineage --cell-id 47`
@@ -237,11 +252,21 @@ The following components were **built from scratch** for this cell-based trading
   - [ ] Command: `python query_cells.py patterns`
   - [ ] Command: `python query_cells.py pattern --name "Volume Analysis"`
 
-**Priority**: P2
+**Priority**: ~~P2~~ → P9 (Deferred)
 **Estimated time**: 1 day
 **Files**: `query_cells.py`
 
-### 5.2 Analysis Scripts
+**Alternative**: Use `sqlite3` directly or Python REPL:
+```bash
+# CLI query example
+sqlite3 cells.db "SELECT cell_id, fitness, dsl_genome FROM cells ORDER BY fitness DESC LIMIT 10"
+
+# Python REPL example
+python -c "from base_agent.src.storage.cell_repository import CellRepository; \
+  repo = CellRepository('cells.db'); print(repo.get_top_cells(10))"
+```
+
+### 5.2 Analysis Scripts (DEFERRED)
 - [ ] Create `analyze_evolution.py` script
   - [ ] Plot fitness over generations
   - [ ] Show survival rate statistics
@@ -249,9 +274,11 @@ The following components were **built from scratch** for this cell-based trading
   - [ ] Generate lineage graphs
   - [ ] Export reports
 
-**Priority**: P2
+**Priority**: ~~P2~~ → P9 (Deferred)
 **Estimated time**: 1-2 days
 **Files**: `analyze_evolution.py`
+
+**Alternative**: Build into Phase 6 web interface (real-time, interactive) or use Jupyter notebook for ad-hoc analysis. See `WEB_INTERFACE.md:202-358` for full vision of what this should become.
 
 ## Phase 6: Web Interface Extensions
 
@@ -369,25 +396,26 @@ The following components were **built from scratch** for this cell-based trading
 **Goal**: ✅ ACHIEVED - Trading-learn mode analyzes cell library and uses 100% LLM-guided mutations
 
 ### 🔄 Sprint 4: DSL Enhancement - NEXT PRIORITY
-1. DSL V2 Phase 2: Aggregations (4.2)
-2. DSL V2 Phase 3: Logical operators (4.3)
-3. CLI query tool (5.1)
+1. DSL V2 Phase 2: Aggregations (4.2) - AVG, SUM, MAX, MIN, STD
+2. DSL V2 Phase 3: Logical operators (4.3) - AND, OR, NOT
+3. DSL V2 Phase 4: Multi-timeframe syntax (4.4) - SYMBOL_TIMEFRAME(N)
 
-**Goal**: Rich DSL with query capabilities
+**Goal**: Complete DSL V2 with aggregations, logic, and multi-timeframe support
+**Note**: Phase 5 (CLI tools) deferred - focus on DSL completeness first
 
 ### 🔄 Sprint 5: Validation - FUTURE
 1. Comprehensive testing (7.1, 7.2)
 2. Validation runs (7.3)
-3. Analysis scripts (5.2)
-
-**Goal**: System proven to work, breaks V1 limitations
-
-### 🔄 Sprint 6: Polish and Extensions - FUTURE
-1. Web interface extensions (6.1, 6.2)
-2. Documentation (8.1, 8.2)
 3. Performance optimization
 
-**Goal**: Production-ready system with visualization
+**Goal**: System proven to work, breaks V1 limitations, ready for production
+
+### 🔄 Sprint 6: Polish and Extensions - FUTURE
+1. Web interface extensions (6.1, 6.2) - Real-time evolution analytics dashboard
+2. Documentation (8.1, 8.2)
+3. Multi-symbol validation
+
+**Goal**: Production-ready system with visualization and comprehensive docs
 
 ## Success Metrics
 
@@ -405,8 +433,8 @@ The following components were **built from scratch** for this cell-based trading
 - ✅ System handles 1000+ cells without performance issues
 
 ### Production Ready (After Sprint 6):
-- ✅ Web interface visualizes cells and patterns
-- ✅ Query tools make analysis easy
+- ✅ Web interface visualizes cells and patterns (real-time evolution analytics)
+- ✅ Interactive lineage graphs and pattern taxonomy browser
 - ✅ Documentation complete and tested
 - ✅ Ready for multi-symbol, walk-forward validation
 

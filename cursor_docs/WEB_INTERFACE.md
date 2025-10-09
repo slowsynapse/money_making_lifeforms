@@ -199,6 +199,164 @@ class CellViewer extends BaseComponent {
 
 See `CELL_ARCHITECTURE.md` and `CELL_STORAGE_API.md` for data structures.
 
+## Evolution Analysis Dashboard (Future Enhancement)
+
+**Vision**: Instead of building a separate CLI tool for post-mortem analysis (see Phase 5 - deferred), the web interface should show **real-time evolution analytics**. This is far more valuable than static reports.
+
+### What the Dashboard Should Show
+
+Below is a mockup of what `analyze_evolution.py` would have produced as a CLI tool. **This should be built into the web interface instead**:
+
+```
+╔══════════════════════════════════════════════════════════════╗
+║              Evolution Run #5 Analysis Report                ║
+╚══════════════════════════════════════════════════════════════╝
+
+📊 GENERATION PROGRESS (100 generations, 2h 15m 32s)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Gen    Cells   Best Fitness   Avg Fitness   Mutations
+─────────────────────────────────────────────────────────────
+0      10      $2.34          $1.87         35
+10     23      $4.56          $2.91         342
+20     41      $6.23          $3.45         687
+30     52      $8.91          $4.12         1,023
+50     89      $14.56         $6.78         1,876
+100    156     $23.31         $8.75         3,421
+
+[Interactive Chart - Fitness Over Time]
+$25 │                                          ╭●
+$20 │                                    ╭────●│
+$15 │                             ╭─────●     │
+$10 │                    ╭────────●           │
+ $5 │  ●────●────●───────●                    │
+ $0 └──────────────────────────────────────────
+     0   10  20  30  40  50  60  70  80  90 100
+
+🧬 MUTATION SUCCESS ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Total Mutations:  3,421
+Successful:       156 (4.6%)  ✓
+Failed:           3,265 (95.4%)  ✗
+
+Failure Breakdown:
+  • Worse fitness:     2,845 (87.1%)  [Expected - most mutations harmful]
+  • Parse errors:      234 (7.2%)     [DSL syntax invalid]
+  • Runtime crashes:   186 (5.7%)     [Division by zero, etc.]
+
+💀 SURVIVAL ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Cells still online:   78 (50%)
+Cells deprecated:     78 (50%)
+Average lifespan:     23.4 generations
+Longest survivor:     Cell #23 (survived 67 gens before superseded)
+Fitness at death:     Avg $9.12 (killed by better offspring)
+
+🏆 TOP 10 SURVIVORS (Still Online)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. Cell #156  Gen 98   $23.31  "Volume Spike Reversal"
+2. Cell #142  Gen 89   $21.87  "Mean Reversion Oscillator"
+3. Cell #134  Gen 85   $19.45  Unanalyzed
+4. Cell #127  Gen 81   $18.92  "Momentum Fade"
+5. Cell #119  Gen 77   $17.34  Unanalyzed
+...
+
+📚 PATTERN TAXONOMY (LLM Discovered)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Volume Analysis (23 cells):
+  ├─ Volume Spike Reversal    $23.31 avg   3 cells   ★★★★★
+  ├─ Volume Fade Strategy     $18.45 avg   8 cells   ★★★★☆
+  └─ Volume Breakout          $15.23 avg  12 cells   ★★★☆☆
+
+Mean Reversion (15 cells):
+  ├─ Overbought Correction    $21.87 avg   5 cells   ★★★★★
+  └─ RSI Divergence           $16.45 avg  10 cells   ★★★★☆
+
+Contrarian (8 cells):
+  ├─ Momentum Fade            $18.92 avg   4 cells   ★★★★☆
+  └─ Panic Buy Reversal       $12.34 avg   4 cells   ★★☆☆☆
+
+🔗 LINEAGE OF BEST CELL (#156)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Gen 0:  Cell #1   → $2.34
+        IF EPSILON(0) > EPSILON(20) THEN BUY ELSE HOLD
+               ↓
+Gen 12: Cell #23  → $4.56
+        IF (EPSILON(0) / EPSILON(20)) > 1.5 THEN BUY ELSE HOLD
+               ↓ [Arithmetic expression added]
+Gen 34: Cell #45  → $8.91
+        IF (EPSILON(0) / EPSILON(20)) > 1.5 AND DELTA(0) < DELTA(10) THEN BUY ELSE HOLD
+               ↓ [Compound condition added]
+Gen 67: Cell #89  → $14.56
+        IF (EPSILON(0) / EPSILON(20)) > 1.8 AND DELTA(0) < DELTA(10) THEN BUY ELSE SELL
+               ↓ [Parameter tuned, action changed]
+Gen 98: Cell #156 → $23.31 ★ BEST
+        IF (EPSILON(0) / EPSILON(20)) > 1.8 AND DELTA(0) < DELTA(10) THEN BUY ELSE SELL
+
+Key mutations in lineage:
+  • Gen 12: Added division (breakthrough moment!)
+  • Gen 34: Combined volume + price (diversification)
+  • Gen 67: Switched HOLD→SELL (active trading)
+
+📈 MULTI-TIMEFRAME PHENOTYPE (Cell #156 on PURR)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Timeframe   Trades   Win Rate   Sharpe   Profit    Best For
+────────────────────────────────────────────────────────────
+1H          45       62.2%      1.47     $23.31    ★★★ High frequency
+4H          12       58.3%      1.12     $18.45    ★★☆ Medium frequency
+1D           3       66.7%      0.89     $12.34    ★☆☆ Low sample size
+
+Recommendation: Deploy on 1H timeframe (highest Sharpe + sample size)
+
+💰 COST ANALYSIS (If LLM-Guided)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+LLM API Calls:        342 calls
+Total Tokens:         2,456,789 tokens
+Total Cost:           $12.45
+Cost per success:     $0.08 per successful mutation
+Time saved:           ~15 hours of manual analysis
+
+ROI Projection:
+  If Cell #156 performs live → $23.31/day
+  Break-even time → 0.53 days (~13 hours)
+  30-day projected profit → $699.30
+  ROI → 5,614%
+```
+
+### Why This Belongs in Web Interface (Not CLI)
+
+**Advantages of web-based analysis:**
+1. **Real-time updates**: See evolution progress live, not post-mortem
+2. **Interactive charts**: Click to explore lineage, zoom into generations
+3. **Filter and search**: Find cells by pattern, fitness range, generation
+4. **Export capabilities**: Download reports, charts, data as needed
+5. **No context switching**: Everything in one interface
+
+**Phase 6 Web Interface Extensions should include:**
+- Live fitness chart (updates each generation)
+- Pattern taxonomy browser with cell filtering
+- Interactive lineage graph (click to traverse ancestry)
+- Multi-timeframe performance comparison tables
+- Mutation failure analytics dashboard
+- Cost tracking for LLM-guided runs
+
+**Alternative for immediate needs:**
+If you need analysis before Phase 6 is complete, use a **Jupyter notebook** with the cell database:
+```python
+from base_agent.src.storage.cell_repository import CellRepository
+import matplotlib.pyplot as plt
+
+repo = CellRepository('cells.db')
+cells = repo.get_top_cells(100)
+
+# Plot fitness over generations
+generations = [c.generation for c in cells]
+fitnesses = [c.fitness for c in cells]
+plt.plot(generations, fitnesses)
+plt.show()
+```
+
+This is more flexible than a CLI tool and takes 10 minutes to create.
+
 ## Customizing the Display
 
 ### Add Trading Metrics to Web Interface

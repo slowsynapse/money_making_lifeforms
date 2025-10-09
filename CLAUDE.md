@@ -1,0 +1,4 @@
+- this runs on its own docker container, my local python on unbutu linux is broken, and running python on root is a bad idea
+- documentation is stored at cursor_docs folder
+- Implementation tasklist is stored in IMPLEMENTATION_TODO inside cursor_docs
+- always test with 100 generations
