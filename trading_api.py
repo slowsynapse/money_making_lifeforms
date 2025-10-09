@@ -93,14 +93,27 @@ async def root():
 
 
 @app.get("/cells/top/{limit}")
-async def get_top_cells(limit: int = 10, min_trades: int = 0):
-    """Get top cells by fitness."""
+async def get_top_cells(limit: int = 10, min_trades: int = 0, has_llm: Optional[bool] = None):
+    """Get top cells by fitness.
+
+    Args:
+        limit: Maximum number of cells to return
+        min_trades: Minimum number of trades required
+        has_llm: Filter by LLM involvement (True=LLM only, False=evolution only, None=all)
+    """
     try:
         repo = get_repository()
         cells = repo.get_top_cells(limit=limit, min_trades=min_trades)
 
         result = []
         for cell in cells:
+            # Filter by LLM involvement if requested
+            if has_llm is not None:
+                if has_llm and cell.llm_name is None:
+                    continue  # Skip evolution-only cells
+                elif not has_llm and cell.llm_name is not None:
+                    continue  # Skip LLM cells
+
             # Get phenotypes for trade count
             phenotypes = repo.get_phenotypes(cell.cell_id)
             total_trades = sum(p.total_trades for p in phenotypes) if phenotypes else 0

@@ -87,11 +87,11 @@ function renderCellsTable() {
             </td>
             <td class="px-4 py-3">
                 <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                    cell.status === 'online'
+                    cell.status === 'online' && cell.fitness >= 0
                         ? 'bg-green-100 text-green-800'
                         : 'bg-gray-100 text-gray-800'
                 }">
-                    ${cell.status}
+                    ${cell.status === 'online' && cell.fitness >= 0 ? '\ud83d\udfe2 alive' : '\ud83d\udc80 dead'}
                 </span>
             </td>
         </tr>
@@ -187,6 +187,11 @@ async function loadCellDetails(cellId) {
 
         renderCellDetails(cell, lineageData.lineage, phenotypesData.phenotypes);
 
+        // Render the D3.js lineage visualization
+        if (typeof renderLineageTree === 'function' && lineageData.lineage) {
+            renderLineageTree(lineageData.lineage);
+        }
+
     } catch (error) {
         console.error('Failed to load cell details:', error);
         document.getElementById('cell-details-content').innerHTML = `
@@ -205,11 +210,11 @@ function renderCellDetails(cell, lineage, phenotypes) {
             <div class="flex items-center justify-between mb-2">
                 <h3 class="text-xl font-bold text-gray-900">Cell #${cell.cell_id}</h3>
                 <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                    cell.status === 'online'
+                    cell.status === 'online' && cell.fitness >= 0
                         ? 'bg-green-100 text-green-800'
                         : 'bg-gray-100 text-gray-800'
                 }">
-                    ${cell.status}
+                    ${cell.status === 'online' && cell.fitness >= 0 ? '\ud83d\udfe2 alive' : '\ud83d\udc80 dead'}
                 </span>
             </div>
             <div class="grid grid-cols-2 gap-2 text-sm">
@@ -261,7 +266,7 @@ ${escapeHtml(cell.dsl_genome)}
         <div class="mb-4">
             <h4 class="text-sm font-semibold text-gray-700 mb-2">Lineage (${lineage.length} ancestors)</h4>
             <div class="lineage-tree bg-gray-50 rounded p-3 text-xs">
-                ${renderLineageTree(lineage)}
+                ${renderLineageText(lineage)}
             </div>
         </div>
 
@@ -279,8 +284,8 @@ ${escapeHtml(cell.dsl_genome)}
     `;
 }
 
-// Render lineage tree
-function renderLineageTree(lineage) {
+// Render lineage tree as text (for inline display in cell details panel)
+function renderLineageText(lineage) {
     return lineage.map((ancestor, index) => {
         const indent = '  '.repeat(index);
         const arrow = index > 0 ? '↓\n' + indent : '';
