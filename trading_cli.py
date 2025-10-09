@@ -247,11 +247,11 @@ async def run_evolve(args):
     # Call the existing evolution function
     # Note: We'll refactor this to use the new extracted module in Step 2
     await run_trading_evolve(
-        max_generations=args.generations,
+        generations=args.generations,
+        workdir=Path(output_dir),
         fitness_goal=args.fitness_goal,
-        stagnation_limit=args.stagnation_limit,
         lenient_cell_count=args.lenient_cells,
-        output_dir=output_dir
+        server_enabled=False
     )
 
 
