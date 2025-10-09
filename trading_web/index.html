@@ -103,19 +103,24 @@
                     <h1 class="text-2xl font-bold text-gray-900">Evolution Dashboard</h1>
                     <p class="text-sm text-gray-600">Cell-based Trading Strategy Evolution</p>
                 </div>
-                <div class="flex gap-6 text-sm">
-                    <div class="text-center">
-                        <div class="text-gray-600">Total Cells</div>
-                        <div id="total-cells" class="text-2xl font-bold text-gray-900">--</div>
+                <div class="flex items-center gap-6">
+                    <div class="flex gap-6 text-sm">
+                        <div class="text-center">
+                            <div class="text-gray-600">Total Cells</div>
+                            <div id="total-cells" class="text-2xl font-bold text-gray-900">--</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-gray-600">Best Fitness</div>
+                            <div id="best-fitness" class="text-2xl font-bold text-green-600">--</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-gray-600">Avg Fitness</div>
+                            <div id="avg-fitness" class="text-2xl font-bold text-blue-600">--</div>
+                        </div>
                     </div>
-                    <div class="text-center">
-                        <div class="text-gray-600">Best Fitness</div>
-                        <div id="best-fitness" class="text-2xl font-bold text-green-600">--</div>
-                    </div>
-                    <div class="text-center">
-                        <div class="text-gray-600">Avg Fitness</div>
-                        <div id="avg-fitness" class="text-2xl font-bold text-blue-600">--</div>
-                    </div>
+                    <button id="llm-learn-btn" class="px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition-colors">
+                        🤖 LLM Learn
+                    </button>
                 </div>
             </div>
         </div>
@@ -139,8 +144,23 @@
             <div class="lg:col-span-2">
                 <div class="bg-white rounded-lg shadow">
                     <div class="px-6 py-4 border-b border-gray-200">
-                        <h2 class="text-lg font-semibold text-gray-900">Top Cells</h2>
-                        <p class="text-sm text-gray-600">Click a cell to view details</p>
+                        <div class="flex justify-between items-center mb-2">
+                            <div>
+                                <h2 class="text-lg font-semibold text-gray-900">Top Cells</h2>
+                                <p class="text-sm text-gray-600">Click a cell to view details</p>
+                            </div>
+                            <div class="flex gap-2">
+                                <button id="filter-all" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-blue-100 text-blue-700">
+                                    All
+                                </button>
+                                <button id="filter-llm" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200">
+                                    🤖 LLM
+                                </button>
+                                <button id="filter-evolution" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200">
+                                    🧬 Evolution
+                                </button>
+                            </div>
+                        </div>
                     </div>
                     <div class="overflow-x-auto">
                         <table class="min-w-full divide-y divide-gray-200">
@@ -166,6 +186,20 @@
 
             <!-- Right Column: Cell Details & Fitness Chart -->
             <div class="lg:col-span-1">
+                <!-- Activity Log / Terminal -->
+                <div class="bg-gray-900 rounded-lg shadow mb-6" style="max-height: 300px;">
+                    <div class="px-4 py-3 border-b border-gray-700 flex justify-between items-center">
+                        <div class="flex items-center gap-2">
+                            <div class="w-3 h-3 rounded-full bg-green-500"></div>
+                            <h2 class="text-sm font-semibold text-gray-100">System Activity</h2>
+                        </div>
+                        <button id="clear-log" class="text-xs text-gray-400 hover:text-gray-200">Clear</button>
+                    </div>
+                    <div id="activity-log" class="p-3 overflow-y-auto font-mono text-xs text-green-400" style="max-height: 250px; background: #0d1117;">
+                        <div class="text-gray-500">Waiting for activity...</div>
+                    </div>
+                </div>
+
                 <div id="cell-details-panel" class="bg-white rounded-lg shadow mb-6">
                     <div class="px-6 py-4 border-b border-gray-200">
                         <h2 class="text-lg font-semibold text-gray-900">Cell Details</h2>
@@ -199,6 +233,69 @@
             </div>
         </div>
     </main>
+
+    <!-- LLM Learn Modal -->
+    <div id="llm-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h3 class="text-lg font-semibold text-gray-900">🤖 Start LLM Learning</h3>
+                <p class="text-sm text-gray-600 mt-1">Let AI analyze and create new trading strategies</p>
+            </div>
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        Number of Strategies
+                    </label>
+                    <input type="number" id="num-strategies" value="5" min="1" max="20"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-transparent">
+                    <p class="text-xs text-gray-500 mt-1">How many new strategies should the LLM create?</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        Confidence Threshold
+                    </label>
+                    <input type="number" id="confidence" value="1.0" min="0.1" max="2.0" step="0.1"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-transparent">
+                    <p class="text-xs text-gray-500 mt-1">Minimum confidence level for new strategies (0.1-2.0)</p>
+                </div>
+                <div class="flex items-center">
+                    <input type="checkbox" id="use-local-llm" class="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500">
+                    <label for="use-local-llm" class="ml-2 text-sm text-gray-700">
+                        Use local LLM (Ollama)
+                    </label>
+                </div>
+            </div>
+            <div class="px-6 py-4 bg-gray-50 rounded-b-lg flex justify-end gap-3">
+                <button id="modal-cancel" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50">
+                    Cancel
+                </button>
+                <button id="modal-start" class="px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-md hover:bg-purple-700">
+                    Start Learning
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Learning Status Panel -->
+    <div id="learning-status" class="hidden fixed bottom-6 right-6 bg-white rounded-lg shadow-xl border border-gray-200 p-4 max-w-sm w-full">
+        <div class="flex items-start justify-between mb-2">
+            <div class="flex items-center gap-2">
+                <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-600"></div>
+                <h4 class="font-semibold text-gray-900">LLM Learning...</h4>
+            </div>
+            <button id="status-close" class="text-gray-400 hover:text-gray-600">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+            </button>
+        </div>
+        <p id="learning-message" class="text-sm text-gray-600 mb-3">
+            Starting learning session...
+        </p>
+        <div class="text-xs text-gray-500">
+            Check the cell table for new 🤖 LLM-created strategies
+        </div>
+    </div>
 
     <script src="/static/lineage-viz.js"></script>
     <script src="/static/dashboard.js"></script>

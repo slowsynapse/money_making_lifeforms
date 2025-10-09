@@ -4,19 +4,109 @@ const API_BASE = 'http://localhost:8081';
 let allCells = [];
 let selectedCell = null;
 let fitnessChart = null;
+let currentFilter = null; // null = all, true = LLM only, false = evolution only
+let activityLog = [];
+const MAX_LOG_ENTRIES = 100;
 
 // Initialize dashboard
 async function init() {
     console.log('Initializing dashboard...');
+    logActivity('system', 'Dashboard initialized');
     await loadCells();
     setupEventListeners();
+    setupActivityMonitoring();
+}
+
+// Activity logging functions
+function logActivity(type, message, data = null) {
+    const timestamp = new Date().toLocaleTimeString();
+    const entry = { type, message, timestamp, data };
+    activityLog.unshift(entry);
+
+    // Keep only last MAX_LOG_ENTRIES
+    if (activityLog.length > MAX_LOG_ENTRIES) {
+        activityLog.pop();
+    }
+
+    updateActivityLog();
+}
+
+function updateActivityLog() {
+    const logEl = document.getElementById('activity-log');
+    const colors = {
+        'system': 'text-blue-400',
+        'api': 'text-green-400',
+        'llm': 'text-purple-400',
+        'evolution': 'text-yellow-400',
+        'error': 'text-red-400',
+        'success': 'text-emerald-400'
+    };
+
+    if (activityLog.length === 0) {
+        logEl.innerHTML = '<div class="text-gray-500">Waiting for activity...</div>';
+        return;
+    }
+
+    logEl.innerHTML = activityLog.map(entry => {
+        const color = colors[entry.type] || 'text-gray-400';
+        return `<div class="${color} mb-1">
+            <span class="text-gray-600">[${entry.timestamp}]</span>
+            <span class="text-gray-500">${entry.type.toUpperCase()}:</span>
+            ${escapeHtml(entry.message)}
+        </div>`;
+    }).join('');
+
+    // Auto-scroll to top (newest entries)
+    logEl.scrollTop = 0;
+}
+
+// Setup activity monitoring
+function setupActivityMonitoring() {
+    // Monitor API calls via fetch wrapper
+    const originalFetch = window.fetch;
+    window.fetch = async function(...args) {
+        const url = args[0];
+        const options = args[1] || {};
+
+        // Log API calls
+        if (url.includes(API_BASE)) {
+            const method = options.method || 'GET';
+            const endpoint = url.replace(API_BASE, '');
+            logActivity('api', `${method} ${endpoint}`);
+        }
+
+        try {
+            const response = await originalFetch.apply(this, args);
+
+            // Log response status
+            if (url.includes(API_BASE)) {
+                const endpoint = url.replace(API_BASE, '');
+                if (response.ok) {
+                    logActivity('success', `✓ ${endpoint} (${response.status})`);
+                } else {
+                    logActivity('error', `✗ ${endpoint} (${response.status})`);
+                }
+            }
+
+            return response;
+        } catch (error) {
+            if (url.includes(API_BASE)) {
+                logActivity('error', `✗ Request failed: ${error.message}`);
+            }
+            throw error;
+        }
+    };
 }
 
 // Load cells from API
-async function loadCells() {
+async function loadCells(hasLlm = null) {
     try {
         console.log('Fetching cells from API...');
-        const response = await fetch(`${API_BASE}/cells/top/100`);
+        let url = `${API_BASE}/cells/top/100`;
+        if (hasLlm !== null) {
+            url += `?has_llm=${hasLlm}`;
+        }
+        const response = await fetch(url);
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -311,6 +401,123 @@ function setupEventListeners() {
 
             // Load cell details
             loadCellDetails(cellId);
+        }
+    });
+
+    // LLM Learn button
+    document.getElementById('llm-learn-btn').addEventListener('click', () => {
+        document.getElementById('llm-modal').classList.remove('hidden');
+    });
+
+    // Modal cancel
+    document.getElementById('modal-cancel').addEventListener('click', () => {
+        document.getElementById('llm-modal').classList.add('hidden');
+    });
+
+    // Modal start learning
+    document.getElementById('modal-start').addEventListener('click', async () => {
+        const numStrategies = parseInt(document.getElementById('num-strategies').value);
+        const confidence = parseFloat(document.getElementById('confidence').value);
+        const useLocal = document.getElementById('use-local-llm').checked;
+
+        // Close modal
+        document.getElementById('llm-modal').classList.add('hidden');
+
+        // Log activity
+        logActivity('llm', `Starting learning session: ${numStrategies} strategies, confidence ${confidence}`);
+
+        // Show status panel
+        const statusPanel = document.getElementById('learning-status');
+        statusPanel.classList.remove('hidden');
+        document.getElementById('learning-message').textContent =
+            `Creating ${numStrategies} new strategies using ${useLocal ? 'local' : 'cloud'} LLM...`;
+
+        try {
+            // Call the API to start learning
+            const response = await fetch(`${API_BASE}/llm/learn/start`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    num_strategies: numStrategies,
+                    confidence: confidence,
+                    use_local: useLocal
+                })
+            });
+
+            const result = await response.json();
+            console.log('Learning session started:', result);
+
+            logActivity('llm', `Learning session configured: ${result.message}`);
+
+            // Update status
+            document.getElementById('learning-message').textContent =
+                `Learning session started! New strategies will appear shortly.`;
+
+            // Refresh cells periodically
+            setTimeout(() => {
+                logActivity('system', 'Refreshing cells (5s)...');
+                loadCells(currentFilter);
+            }, 5000);
+            setTimeout(() => {
+                logActivity('system', 'Refreshing cells (15s)...');
+                loadCells(currentFilter);
+            }, 15000);
+            setTimeout(() => {
+                logActivity('system', 'Refreshing cells (30s)...');
+                loadCells(currentFilter);
+            }, 30000);
+
+        } catch (error) {
+            console.error('Failed to start learning:', error);
+            logActivity('error', `Failed to start learning: ${error.message}`);
+            document.getElementById('learning-message').textContent =
+                `Error: ${error.message}`;
+        }
+    });
+
+    // Status panel close
+    document.getElementById('status-close').addEventListener('click', () => {
+        document.getElementById('learning-status').classList.add('hidden');
+    });
+
+    // Clear activity log
+    document.getElementById('clear-log').addEventListener('click', () => {
+        activityLog = [];
+        updateActivityLog();
+        logActivity('system', 'Log cleared');
+    });
+
+    // Filter buttons
+    document.getElementById('filter-all').addEventListener('click', () => {
+        currentFilter = null;
+        updateFilterButtons('filter-all');
+        loadCells(null);
+    });
+
+    document.getElementById('filter-llm').addEventListener('click', () => {
+        currentFilter = true;
+        updateFilterButtons('filter-llm');
+        loadCells(true);
+    });
+
+    document.getElementById('filter-evolution').addEventListener('click', () => {
+        currentFilter = false;
+        updateFilterButtons('filter-evolution');
+        loadCells(false);
+    });
+}
+
+// Update filter button styles
+function updateFilterButtons(activeId) {
+    const buttons = ['filter-all', 'filter-llm', 'filter-evolution'];
+    buttons.forEach(id => {
+        const btn = document.getElementById(id);
+        if (id === activeId) {
+            btn.classList.remove('bg-gray-100', 'text-gray-700');
+            btn.classList.add('bg-blue-100', 'text-blue-700');
+        } else {
+            btn.classList.remove('bg-blue-100', 'text-blue-700');
+            btn.classList.add('bg-gray-100', 'text-gray-700');
         }
     });
 }

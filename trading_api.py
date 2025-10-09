@@ -251,6 +251,40 @@ async def get_statistics():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/llm/learn/start")
+async def start_llm_learning(
+    background_tasks: BackgroundTasks,
+    num_strategies: int = 5,
+    confidence: float = 1.0,
+    use_local: bool = False
+):
+    """Start a trading-learn session to create new LLM-guided strategies.
+
+    Note: This endpoint is designed to be called from outside the Docker container.
+    It returns a command that should be executed by the caller.
+    """
+    try:
+        import os
+
+        # Build the command string
+        llm_flag = "--use-local" if use_local else ""
+        cmd = f"./trade-learn -n {num_strategies} -c {confidence} {llm_flag}".strip()
+
+        llm_type = "local LLM (Ollama)" if use_local else "cloud LLM"
+        return {
+            "message": f"LLM learning ready to start for {num_strategies} strategies using {llm_type}",
+            "command": cmd,
+            "parameters": {
+                "num_strategies": num_strategies,
+                "confidence": confidence,
+                "use_local": use_local
+            },
+            "note": "Execute the command on the host to start learning. New strategies will appear in the database."
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
 
