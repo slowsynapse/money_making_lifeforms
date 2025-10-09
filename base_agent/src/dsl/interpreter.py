@@ -1,9 +1,10 @@
 import re
 import pandas as pd
+import numpy as np
 from collections import Counter
 from .grammar import (
     Indicator, Operator, Action, Condition, Rule, DslProgram, AggregationMode,
-    ArithmeticOp, IndicatorValue, BinaryOp, Expression
+    ArithmeticOp, IndicatorValue, BinaryOp, FunctionCall, AggregationFunc, Expression
 )
 
 class DslInterpreter:
@@ -148,6 +149,59 @@ class DslInterpreter:
         # Return the value
         return float(market_data.iloc[lookback_index][column])
 
+    def _evaluate_aggregation(
+        self,
+        func: AggregationFunc,
+        indicator: Indicator,
+        window: int,
+        market_data: pd.DataFrame,
+        current_index: int
+    ) -> float:
+        """
+        Evaluate an aggregation function over a window of indicator values.
+
+        Args:
+            func: Aggregation function (AVG, SUM, MAX, MIN, STD)
+            indicator: The indicator to aggregate (ALPHA, BETA, etc.)
+            window: Window size for aggregation
+            market_data: Full DataFrame with OHLCV data
+            current_index: Current row index
+
+        Returns:
+            Aggregated value
+
+        Example:
+            AVG(DELTA, 20) = average of last 20 close prices
+            MAX(BETA, 10) = maximum of last 10 high prices
+        """
+        # Calculate window boundaries
+        start_index = max(0, current_index - window + 1)
+        end_index = current_index + 1  # +1 because slice is exclusive
+
+        # Get the column name for this indicator
+        column = self.SYMBOL_TO_COLUMN[indicator]
+
+        # Extract the window of values
+        window_data = market_data.iloc[start_index:end_index][column].values
+
+        # Handle empty window
+        if len(window_data) == 0:
+            return 0.0
+
+        # Apply the aggregation function
+        if func == AggregationFunc.AVG:
+            return float(np.mean(window_data))
+        elif func == AggregationFunc.SUM:
+            return float(np.sum(window_data))
+        elif func == AggregationFunc.MAX:
+            return float(np.max(window_data))
+        elif func == AggregationFunc.MIN:
+            return float(np.min(window_data))
+        elif func == AggregationFunc.STD:
+            return float(np.std(window_data))
+        else:
+            raise ValueError(f"Unknown aggregation function: {func}")
+
     def _evaluate_expression(
         self,
         expression: Expression,
@@ -155,10 +209,10 @@ class DslInterpreter:
         current_index: int
     ) -> float:
         """
-        Evaluate an expression (either simple indicator or arithmetic operation).
+        Evaluate an expression (simple indicator, arithmetic operation, or aggregation function).
 
         Args:
-            expression: IndicatorValue or BinaryOp
+            expression: IndicatorValue, BinaryOp, or FunctionCall
             market_data: Full DataFrame with OHLCV data
             current_index: Current row index
 
@@ -192,6 +246,15 @@ class DslInterpreter:
                 return left_val / right_val
             else:
                 raise ValueError(f"Unknown arithmetic operator: {expression.op}")
+        elif isinstance(expression, FunctionCall):
+            # Aggregation function - calculate over window
+            return self._evaluate_aggregation(
+                expression.func,
+                expression.indicator,
+                expression.window,
+                market_data,
+                current_index
+            )
         else:
             raise TypeError(f"Unknown expression type: {type(expression)}")
 
@@ -292,6 +355,12 @@ class DslInterpreter:
             ind = expr.indicator.value
             param = f"({expr.param})" if expr.param else "()"
             return f"{ind}{param}"
+        elif isinstance(expr, FunctionCall):
+            # Aggregation function
+            func = expr.func.value
+            ind = expr.indicator.value
+            window = expr.window
+            return f"{func}({ind}, {window})"
         elif isinstance(expr, BinaryOp):
             # Arithmetic operation - recursively convert left and right
             left_str = self._expression_to_string(expr.left)

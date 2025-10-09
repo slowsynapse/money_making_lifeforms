@@ -1,5 +1,7 @@
 # Web Interface for Agent Visualization
 
+**Note**: This web interface was **inherited from the original SICA (Self-Improving Coding Agent) framework**. It shows agent execution trees, event streams, and metrics - it does NOT currently display cell evolution, lineage graphs, or pattern taxonomies. See "Cell Visualization (Future Enhancement)" section below for planned extensions.
+
 ## Overview
 
 The agent includes a **real-time web visualization** that displays:

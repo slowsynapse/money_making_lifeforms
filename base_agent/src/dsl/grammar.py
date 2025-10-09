@@ -32,6 +32,14 @@ class ArithmeticOp(Enum):
     MULTIPLY = "*"
     DIVIDE = "/"
 
+class AggregationFunc(Enum):
+    """Aggregation functions for DSL V2 Phase 2."""
+    AVG = "AVG"      # Average over a window
+    SUM = "SUM"      # Sum over a window
+    MAX = "MAX"      # Maximum over a window
+    MIN = "MIN"      # Minimum over a window
+    STD = "STD"      # Standard deviation over a window
+
 @dataclass
 class IndicatorValue:
     """A single indicator with its parameter (e.g., DELTA(10))."""
@@ -41,12 +49,19 @@ class IndicatorValue:
 @dataclass
 class BinaryOp:
     """Binary arithmetic operation (e.g., DELTA(0) / DELTA(20))."""
-    left: Union['BinaryOp', 'IndicatorValue']
+    left: Union['BinaryOp', 'IndicatorValue', 'FunctionCall']
     op: ArithmeticOp
-    right: Union['BinaryOp', 'IndicatorValue']
+    right: Union['BinaryOp', 'IndicatorValue', 'FunctionCall']
 
-# Expression type can be either a simple indicator or a binary operation
-Expression = Union[IndicatorValue, BinaryOp]
+@dataclass
+class FunctionCall:
+    """Aggregation function call (e.g., AVG(DELTA, 20))."""
+    func: AggregationFunc
+    indicator: Indicator
+    window: int  # Lookback period for aggregation
+
+# Expression type can be an indicator, binary operation, or function call
+Expression = Union[IndicatorValue, BinaryOp, FunctionCall]
 
 @dataclass
 class Condition:
