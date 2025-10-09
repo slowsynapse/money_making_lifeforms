@@ -6,6 +6,7 @@
     <title>Trading Evolution Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
     <style>
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -38,6 +39,59 @@
             color: #dc2626;
             font-weight: 600;
         }
+        /* D3 Lineage Tree Styles */
+        #lineage-viz svg {
+            width: 100%;
+            height: 100%;
+        }
+        .lineage-node circle {
+            stroke: #fff;
+            stroke-width: 3px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .lineage-node circle:hover {
+            stroke-width: 5px;
+            filter: brightness(1.1);
+        }
+        .lineage-link {
+            fill: none;
+            stroke: #94a3b8;
+            stroke-width: 2px;
+            stroke-opacity: 0.6;
+        }
+        .lineage-label {
+            font-size: 11px;
+            font-weight: 600;
+            fill: #334155;
+            text-anchor: middle;
+            pointer-events: none;
+        }
+        .fitness-delta {
+            font-size: 10px;
+            fill: #64748b;
+            font-weight: 500;
+        }
+        .genome-diff {
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+        }
+        .diff-added {
+            background-color: #d1fae5;
+            color: #065f46;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+        .diff-removed {
+            background-color: #fee2e2;
+            color: #991b1b;
+            padding: 2px 4px;
+            border-radius: 3px;
+            text-decoration: line-through;
+        }
+        .diff-unchanged {
+            color: #6b7280;
+        }
     </style>
 </head>
 <body class="bg-gray-50">
@@ -69,6 +123,17 @@
 
     <!-- Main Content -->
     <main class="max-w-7xl mx-auto px-6 py-6">
+        <!-- Full-width Lineage Visualization - Top Position -->
+        <div id="lineage-section" class="mb-6 bg-white rounded-lg shadow" style="display: none;">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h2 class="text-lg font-semibold text-gray-900">Evolutionary Lineage Tree</h2>
+                <p class="text-sm text-gray-600">Interactive ancestry visualization showing fitness progression</p>
+            </div>
+            <div id="lineage-viz" class="p-6" style="min-height: 400px; position: relative;">
+                <!-- D3.js visualization will be inserted here -->
+            </div>
+        </div>
+
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <!-- Left Column: Cell Table -->
             <div class="lg:col-span-2">
@@ -97,22 +162,11 @@
                         </table>
                     </div>
                 </div>
-
-                <!-- Fitness Chart -->
-                <div class="bg-white rounded-lg shadow mt-6">
-                    <div class="px-6 py-4 border-b border-gray-200">
-                        <h2 class="text-lg font-semibold text-gray-900">Fitness Evolution</h2>
-                        <p class="text-sm text-gray-600">Fitness progress over generations</p>
-                    </div>
-                    <div class="p-6">
-                        <canvas id="fitness-chart" height="100"></canvas>
-                    </div>
-                </div>
             </div>
 
-            <!-- Right Column: Cell Details -->
+            <!-- Right Column: Cell Details & Fitness Chart -->
             <div class="lg:col-span-1">
-                <div id="cell-details-panel" class="bg-white rounded-lg shadow">
+                <div id="cell-details-panel" class="bg-white rounded-lg shadow mb-6">
                     <div class="px-6 py-4 border-b border-gray-200">
                         <h2 class="text-lg font-semibold text-gray-900">Cell Details</h2>
                     </div>
@@ -120,10 +174,33 @@
                         <p class="text-sm text-gray-500 text-center py-8">Select a cell to view details</p>
                     </div>
                 </div>
+
+                <!-- Genome Evolution Section -->
+                <div id="genome-evolution-section" class="bg-white rounded-lg shadow mb-6" style="display: none;">
+                    <div class="px-6 py-4 border-b border-gray-200">
+                        <h2 class="text-lg font-semibold text-gray-900">Genome Evolution</h2>
+                        <p class="text-sm text-gray-600">Strategy mutations across generations</p>
+                    </div>
+                    <div id="genome-diff-container" class="p-6" style="max-height: 400px; overflow-y: auto;">
+                        <!-- Genome diffs will be inserted here -->
+                    </div>
+                </div>
+
+                <!-- Fitness Chart -->
+                <div class="bg-white rounded-lg shadow">
+                    <div class="px-6 py-4 border-b border-gray-200">
+                        <h2 class="text-lg font-semibold text-gray-900">Fitness Evolution</h2>
+                        <p class="text-sm text-gray-600">Fitness progress over generations</p>
+                    </div>
+                    <div class="p-6">
+                        <canvas id="fitness-chart" height="200"></canvas>
+                    </div>
+                </div>
             </div>
         </div>
     </main>
 
+    <script src="/static/lineage-viz.js"></script>
     <script src="/static/dashboard.js"></script>
 </body>
 </html>
