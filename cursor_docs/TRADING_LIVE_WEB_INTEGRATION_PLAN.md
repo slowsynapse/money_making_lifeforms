@@ -20,13 +20,14 @@
   - Responsive height calculation for lineage visualization
 
 ## Objective
-Add real-time trading capabilities to the web dashboard, allowing users to:
-1. Select top-performing cells and deploy them to live trading
-2. Monitor live trading performance in real-time
-3. View live P&L, position data, and trade history
-4. Compare live performance vs backtest results
-5. **Allow LLM to create new cells directly from the web interface**
-6. **Properly mark unviable cells as "💀 dead" instead of all being "online"**
+Integrate existing `trading-learn` functionality into the web dashboard, allowing users to:
+1. **Allow LLM to create new cells directly from the web interface** (uses existing `trading-learn` API)
+2. **Properly mark unviable cells as "💀 dead" instead of all being "online"**
+3. Monitor LLM learning sessions in real-time
+4. View which cells were created by LLM vs evolution
+5. Track LLM hypotheses and their success rates
+
+**Note**: The `trading-learn` command already exists and has API implementation. We just need to expose it in the web UI.
 
 ---
 
@@ -77,401 +78,126 @@ for cell in cells:
 </span>
 ```
 
-### 0.2 LLM Cell Creation Interface
+### 0.2 Integrate Existing `trading-learn` Command
 
-**Goal**: Allow LLM to create new cells from web dashboard
+**Current Implementation**: The `trading-learn` command already exists in `base_agent/src/commands/trading_learn.py`
+- Takes `-n` (number of strategies) and `-c` (confidence threshold)
+- Uses LLM to analyze top cells and create new strategies
+- Already stores cells with `llm_name`, `llm_hypothesis`, `llm_category`
 
-**New API Endpoints**:
+**What We Need**: Web UI to trigger and monitor `trading-learn` sessions
 
+**Check Existing API Endpoints** in `trading_api.py`:
+```bash
+# Need to verify if these exist or add them:
+POST /llm/learn/start - Start a trading-learn session
+GET /llm/learn/status - Get current learning status
+GET /llm/learn/sessions - Get learning session history
+GET /cells?has_llm=true - Filter cells created by LLM
+```
+
+**If endpoints don't exist, add**:
 ```python
-@app.post("/cells/create")
-async def create_cell_from_llm(
-    dsl_genome: str,
-    llm_name: str,
-    llm_hypothesis: str,
-    llm_category: str,
-    parent_cell_id: Optional[int] = None
+@app.post("/llm/learn/start")
+async def start_llm_learning(
+    num_strategies: int = 5,
+    confidence: float = 1.0,
+    use_local: bool = False
 ):
-    """Create a new cell with LLM-generated strategy"""
-    # 1. Validate DSL syntax
-    # 2. Run backtest to get fitness
-    # 3. Create cell in database with LLM metadata
-    # 4. Return new cell_id and results
+    """Start a trading-learn session (wrapper around existing command)"""
+    # Execute: trading-learn -n {num_strategies} -c {confidence}
+    # Return session_id for monitoring
 
-@app.post("/cells/{cell_id}/fork")
-async def fork_cell(
-    cell_id: int,
-    mutation_description: str,
-    llm_name: str
+@app.get("/llm/learn/status/{session_id}")
+async def get_learning_status(session_id: str):
+    """Get status of running learning session"""
+    # Check if process is running, how many cells created, etc.
+
+@app.get("/cells")
+async def get_cells(
+    limit: int = 100,
+    has_llm: Optional[bool] = None,
+    llm_category: Optional[str] = None
 ):
-    """Fork existing cell with LLM-guided mutation"""
-    # 1. Get parent cell
-    # 2. Apply mutation
-    # 3. Backtest mutated strategy
-    # 4. Create new cell with lineage
+    """Get cells with optional LLM filtering"""
 ```
 
 **UI Components**:
 
-1. **"Create Strategy" Button** in header
-2. **Strategy Editor Modal** with:
-   - DSL textarea with syntax highlighting
-   - LLM hypothesis input
-   - Category selector (momentum, mean-reversion, etc.)
-   - "Test Strategy" button (runs backtest)
-   - "Create Cell" button
+1. **"LLM Learn" Button** in header
+   - Opens modal to configure learning session
+   - Inputs: num_strategies (5), confidence (1.0), use_local LLM toggle
+   - "Start Learning" button triggers session
 
-3. **"Fork with LLM" Button** on cell details panel
+2. **Learning Session Monitor Panel** (appears when session active)
+   - Shows: "Learning... 3/5 strategies created"
+   - Progress bar
+   - List of newly created cells as they appear
+   - "Stop Learning" button
 
-**Example UI Flow**:
-```
-User clicks "Create Strategy"
-→ Modal opens with DSL editor
-→ User writes DSL or asks LLM for help
-→ Click "Test Strategy" → Shows backtest results
-→ If satisfied, click "Create Cell" → Cell added to database
-→ Dashboard refreshes showing new cell
-```
+3. **LLM Filter Toggle** in cell table
+   - "Show All" / "LLM Only" / "Evolution Only"
+   - Adds icon/badge to LLM-created cells (e.g., 🤖)
 
----
-
-## Phase 1: Backend API Extensions
-
-### 1.1 New API Endpoints (trading_api.py)
-
-Add these endpoints to `trading_api.py`:
-
-```python
-@app.post("/trading/start")
-async def start_live_trading(
-    cell_id: int,
-    allocation: float = 1000.0,  # USD allocation
-    timeframe: str = "1h",       # Trading timeframe
-    dry_run: bool = True         # Paper trading vs live
-):
-    """Start live trading for a specific cell"""
-    # 1. Load cell from repository
-    # 2. Initialize trading session
-    # 3. Start monitoring thread/task
-    # 4. Return session ID and initial status
-
-@app.post("/trading/stop/{session_id}")
-async def stop_live_trading(session_id: str):
-    """Stop an active trading session"""
-
-@app.get("/trading/sessions")
-async def get_trading_sessions():
-    """Get all active and recent trading sessions"""
-
-@app.get("/trading/session/{session_id}")
-async def get_session_details(session_id: str):
-    """Get detailed info for a specific session"""
-    # Returns: session_id, cell_id, status, start_time,
-    #          current_pnl, open_positions, trade_count
-
-@app.get("/trading/session/{session_id}/trades")
-async def get_session_trades(session_id: str):
-    """Get trade history for a session"""
-
-@app.get("/trading/session/{session_id}/positions")
-async def get_session_positions(session_id: str):
-    """Get current open positions for a session"""
-
-@app.websocket("/ws/trading/{session_id}")
-async def trading_websocket(websocket: WebSocket, session_id: str):
-    """WebSocket for real-time updates"""
-    # Stream: price updates, P&L changes, new trades, position updates
-```
-
-### 1.2 Trading Session Manager
-
-Create `base_agent/src/trading/live_session_manager.py`:
-
-```python
-class LiveTradingSession:
-    """Manages a single live trading session"""
-    def __init__(self, cell_id, dsl_genome, allocation, timeframe, dry_run):
-        self.session_id = str(uuid.uuid4())
-        self.cell_id = cell_id
-        self.genome = dsl_genome
-        self.allocation = allocation
-        self.timeframe = timeframe
-        self.dry_run = dry_run
-        self.status = "initializing"  # initializing, running, stopped, error
-        self.start_time = datetime.now()
-        self.pnl = 0.0
-        self.trades = []
-        self.positions = []
-
-    async def start(self):
-        """Initialize connection and start trading loop"""
-
-    async def stop(self):
-        """Gracefully stop trading and close positions"""
-
-    async def update_tick(self, price_data):
-        """Process new price tick"""
-
-class LiveTradingManager:
-    """Manages all active trading sessions"""
-    def __init__(self):
-        self.sessions: Dict[str, LiveTradingSession] = {}
-
-    async def create_session(self, cell_id, genome, allocation, timeframe, dry_run):
-        """Create and start new trading session"""
-
-    async def stop_session(self, session_id):
-        """Stop a specific session"""
-
-    def get_active_sessions(self):
-        """Get all active sessions"""
-```
+4. **LLM Cell Details** in cell details panel
+   - Show LLM name, hypothesis, category
+   - "This cell was created by LLM analyzing Cell #29"
 
 ---
 
-## Phase 2: Frontend Dashboard Extensions
+## Future Enhancement: Live Trading Feature
 
-### 2.1 New UI Components
+**Note**: Live trading with real-time sessions is a separate feature from `trading-learn`.
+This would require additional implementation beyond the LLM learning integration.
 
-#### 2.1.1 Live Trading Panel (Right Column Addition)
-Add below Fitness Evolution chart in `trading_web/index.html`:
-
-```html
-<!-- Live Trading Control -->
-<div id="live-trading-panel" class="bg-white rounded-lg shadow mt-6">
-    <div class="px-6 py-4 border-b border-gray-200">
-        <h2 class="text-lg font-semibold text-gray-900">Live Trading</h2>
-        <p class="text-sm text-gray-600">Deploy cells to live trading</p>
-    </div>
-    <div class="p-6">
-        <div id="live-trading-content">
-            <!-- Trading controls will be inserted here -->
-        </div>
-    </div>
-</div>
-```
-
-#### 2.1.2 Active Sessions Table (New Section Above Main Grid)
-Add below lineage section:
-
-```html
-<!-- Active Trading Sessions -->
-<div id="active-sessions-section" class="mb-6 bg-white rounded-lg shadow" style="display: none;">
-    <div class="px-6 py-4 border-b border-gray-200">
-        <h2 class="text-lg font-semibold text-gray-900">Active Trading Sessions</h2>
-        <p class="text-sm text-gray-600">Real-time monitoring of deployed cells</p>
-    </div>
-    <div class="p-6">
-        <table class="min-w-full divide-y divide-gray-200">
-            <thead class="bg-gray-50">
-                <tr>
-                    <th>Session ID</th>
-                    <th>Cell</th>
-                    <th>Timeframe</th>
-                    <th>Status</th>
-                    <th>P&L</th>
-                    <th>Trades</th>
-                    <th>Uptime</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody id="sessions-table-body">
-                <!-- Sessions will be rendered here -->
-            </tbody>
-        </table>
-    </div>
-</div>
-```
-
-### 2.2 New JavaScript Files
-
-#### 2.2.1 trading_web/live-trading.js
-```javascript
-// Live Trading Controls and Management
-
-class LiveTradingManager {
-    constructor() {
-        this.activeSessions = new Map();
-        this.websockets = new Map();
-    }
-
-    async startTrading(cellId, allocation, timeframe, dryRun) {
-        // POST to /trading/start
-        // Open WebSocket connection
-        // Update UI
-    }
-
-    async stopTrading(sessionId) {
-        // POST to /trading/stop/{session_id}
-        // Close WebSocket
-        // Update UI
-    }
-
-    connectWebSocket(sessionId) {
-        // Connect to /ws/trading/{session_id}
-        // Handle real-time updates
-    }
-
-    renderSessionCard(session) {
-        // Render live session card with P&L, status, controls
-    }
-}
-```
-
-#### 2.2.2 trading_web/realtime-charts.js
-```javascript
-// Real-time chart updates for live trading
-
-class RealtimePnLChart {
-    constructor(canvasId) {
-        this.chart = new Chart(canvasId, {
-            type: 'line',
-            data: {
-                labels: [],
-                datasets: [{
-                    label: 'P&L',
-                    data: [],
-                    borderColor: 'rgb(34, 197, 94)',
-                    tension: 0.1
-                }]
-            },
-            options: {
-                responsive: true,
-                animation: false,  // Disable for real-time
-                scales: {
-                    x: { type: 'time' }
-                }
-            }
-        });
-    }
-
-    addDataPoint(timestamp, pnl) {
-        this.chart.data.labels.push(timestamp);
-        this.chart.data.datasets[0].data.push(pnl);
-        this.chart.update('none');  // No animation
-    }
-}
-```
+See separate plan document if/when live trading feature is needed.
 
 ---
 
-## Phase 3: Integration with Existing trading-live Command
+## Implementation Order
 
-### 3.1 Adapt Existing Code
-The `trading-live` command already exists in `base_agent/src/commands/trading_live.py`:
-- Uses Kraken API for live data
-- Implements DSL execution
-- Handles position management
+### Sprint 1: Fix Cell Status (Priority 1)
+1. **Update cell status to use emojis**
+   - Implement `is_cell_viable()` function
+   - Update API to return "🟢 alive" or "💀 dead"
+   - Update frontend display with proper styling
+2. **Test with current 100 cells**
+   - Mark cells with fitness < threshold as dead
+   - Verify UI displays correctly
 
-**Modifications needed**:
-1. Extract core trading logic into reusable class
-2. Add session tracking and state management
-3. Add WebSocket broadcast for UI updates
-4. Store trade history in database
+### Sprint 2: Add `trading-learn` API Endpoints (Priority 2)
+1. **Check existing trading_api.py for any LLM endpoints**
+2. **Add missing endpoints**:
+   - `POST /llm/learn/start`
+   - `GET /llm/learn/status/{session_id}`
+   - `GET /cells?has_llm=true` (filter parameter)
+3. **Test endpoints**:
+   - Start a learning session via API
+   - Monitor status
+   - Verify new cells appear in database
 
-### 3.2 Database Schema Extensions
+### Sprint 3: LLM Learning UI (Priority 3)
+1. **Add "LLM Learn" button** to dashboard header
+2. **Create learning configuration modal**
+   - Num strategies input
+   - Confidence threshold
+   - Use local LLM toggle
+3. **Add learning session monitor**
+   - Progress bar
+   - Real-time cell creation updates
+4. **Add LLM filter toggle** to cell table
+   - Show all / LLM only / Evolution only
+   - Add 🤖 badge to LLM cells
 
-Add to `base_agent/src/storage/models.py`:
-
-```python
-class TradingSession(Base):
-    __tablename__ = 'trading_sessions'
-
-    session_id = Column(String, primary_key=True)
-    cell_id = Column(Integer, ForeignKey('cells.cell_id'))
-    allocation = Column(Float)
-    timeframe = Column(String)
-    dry_run = Column(Boolean)
-    status = Column(String)  # running, stopped, error
-    start_time = Column(DateTime)
-    end_time = Column(DateTime, nullable=True)
-    final_pnl = Column(Float, nullable=True)
-    trade_count = Column(Integer, default=0)
-
-class LiveTrade(Base):
-    __tablename__ = 'live_trades'
-
-    trade_id = Column(String, primary_key=True)
-    session_id = Column(String, ForeignKey('trading_sessions.session_id'))
-    cell_id = Column(Integer, ForeignKey('cells.cell_id'))
-    timestamp = Column(DateTime)
-    side = Column(String)  # buy/sell
-    quantity = Column(Float)
-    price = Column(Float)
-    pnl = Column(Float)
-    position_after = Column(Float)
-```
-
----
-
-## Phase 4: Testing Plan
-
-### 4.1 Unit Tests
-- Test session creation/stopping
-- Test WebSocket connections
-- Test trade logging
-- Test P&L calculations
-
-### 4.2 Integration Tests
-- Start session via API
-- Verify WebSocket receives updates
-- Stop session and verify cleanup
-- Test multiple concurrent sessions
-
-### 4.3 Manual Testing
-1. Deploy Cell #29 (best performer) to paper trading
-2. Monitor for 1 hour
-3. Verify UI updates correctly
-4. Stop session and verify final P&L saved
-
----
-
-## Phase 5: Implementation Order
-
-### Sprint 0: Prerequisites (MUST DO FIRST)
-1. **Fix cell status display**
-   - Update status field to use "🟢 alive" / "💀 dead"
-   - Implement `is_cell_viable()` checker
-   - Update API to set proper status
-   - Update frontend to display emoji status
-2. **Add LLM cell creation endpoints**
-   - POST `/cells/create` for new cells
-   - POST `/cells/{cell_id}/fork` for mutations
-   - Add backtest runner integration
-3. **Add Strategy Editor Modal UI**
-   - Create button in header
-   - Modal with DSL editor
-   - Test & create workflow
-
-### Sprint 1: Backend Foundation
-1. Create LiveTradingSession and LiveTradingManager classes
-2. Add database models for sessions and trades
-3. Implement basic API endpoints (start/stop/list)
-4. Add session storage to database
-
-### Sprint 2: Real-time Communication
-1. Implement WebSocket endpoint
-2. Add real-time price feed integration
-3. Broadcast trade events to WebSocket
-4. Test WebSocket with multiple clients
-
-### Sprint 3: Frontend UI
-1. Create live-trading.js with session management
-2. Add Live Trading panel to dashboard
-3. Add Active Sessions table
-4. Implement start/stop controls
-
-### Sprint 4: Real-time Charts
-1. Create realtime-charts.js
-2. Add P&L chart component
-3. Add position chart component
-4. Connect charts to WebSocket updates
-
-### Sprint 5: Polish & Testing
-1. Add error handling and recovery
-2. Add session persistence (survive server restart)
-3. Add trading session history view
-4. Performance testing with multiple sessions
+### Sprint 4: Enhanced LLM Cell Display (Priority 4)
+1. **Update cell details panel**
+   - Show LLM metadata (name, hypothesis, category)
+   - Show parent cell if applicable
+   - Highlight LLM cells in lineage tree
+2. **Add LLM statistics panel**
+   - Total LLM cells created
+   - Success rate by category
+   - Best performing LLM strategies
 
 ---
 
