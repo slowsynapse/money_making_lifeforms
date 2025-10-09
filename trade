@@ -1,0 +1,52 @@
+#!/bin/bash
+# Trading Evolution System CLI Wrapper
+# This script wraps Docker to make it feel like a native Python CLI
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+# Check if Docker is available
+if ! command -v docker &> /dev/null; then
+    echo "Error: Docker is not installed or not in PATH"
+    exit 1
+fi
+
+# Check if sica_sandbox image exists
+if ! docker image inspect sica_sandbox &> /dev/null; then
+    echo "Error: sica_sandbox Docker image not found"
+    echo "Please build it first with your Dockerfile"
+    exit 1
+fi
+
+# Set up the workdir based on command
+WORKDIR=""
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+
+# Parse the first argument to determine workdir
+if [ "$1" = "evolve" ]; then
+    WORKDIR="/home/agent/results/evolve_${TIMESTAMP}"
+elif [ "$1" = "learn" ]; then
+    WORKDIR="/home/agent/results/learn_${TIMESTAMP}"
+elif [ "$1" = "test" ]; then
+    WORKDIR="/home/agent/results/test_${TIMESTAMP}"
+elif [ "$1" = "demo" ]; then
+    WORKDIR="/home/agent/results/demo_${TIMESTAMP}"
+else
+    WORKDIR="/home/agent/workdir"
+fi
+
+# Run the Docker container with the trading CLI
+docker run --rm \
+    --user "$(id -u):$(id -g)" \
+    -v "${SCRIPT_DIR}/base_agent:/home/agent/agent_code" \
+    -v "${SCRIPT_DIR}/benchmark_data:/home/agent/benchmark_data" \
+    -v "${SCRIPT_DIR}/results:/home/agent/results" \
+    -v "${SCRIPT_DIR}:/home/agent/project" \
+    -w /home/agent/project \
+    -e PYTHONPATH="/home/agent/project:/home/agent/agent_code" \
+    -e USE_LOCAL_LLM="${USE_LOCAL_LLM}" \
+    -e WORKDIR="${WORKDIR}" \
+    --network host \
+    sica_sandbox \
+    python trading_cli.py "$@"

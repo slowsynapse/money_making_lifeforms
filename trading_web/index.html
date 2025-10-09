@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Evolution Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+        .cell-row:hover {
+            background-color: #f3f4f6;
+            cursor: pointer;
+        }
+        .cell-row.selected {
+            background-color: #dbeafe;
+        }
+        .genome-text {
+            font-family: 'Courier New', monospace;
+            font-size: 0.75rem;
+            max-width: 400px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .lineage-tree {
+            font-family: 'Courier New', monospace;
+            font-size: 0.875rem;
+            line-height: 1.6;
+        }
+        .fitness-positive {
+            color: #059669;
+            font-weight: 600;
+        }
+        .fitness-negative {
+            color: #dc2626;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <!-- Header -->
+    <header class="bg-white shadow-sm border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-6 py-4">
+            <div class="flex justify-between items-center">
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-900">Evolution Dashboard</h1>
+                    <p class="text-sm text-gray-600">Cell-based Trading Strategy Evolution</p>
+                </div>
+                <div class="flex gap-6 text-sm">
+                    <div class="text-center">
+                        <div class="text-gray-600">Total Cells</div>
+                        <div id="total-cells" class="text-2xl font-bold text-gray-900">--</div>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-gray-600">Best Fitness</div>
+                        <div id="best-fitness" class="text-2xl font-bold text-green-600">--</div>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-gray-600">Avg Fitness</div>
+                        <div id="avg-fitness" class="text-2xl font-bold text-blue-600">--</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-6 py-6">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Left Column: Cell Table -->
+            <div class="lg:col-span-2">
+                <div class="bg-white rounded-lg shadow">
+                    <div class="px-6 py-4 border-b border-gray-200">
+                        <h2 class="text-lg font-semibold text-gray-900">Top Cells</h2>
+                        <p class="text-sm text-gray-600">Click a cell to view details</p>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Gen</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fitness</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Trades</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Strategy</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="cell-table-body" class="bg-white divide-y divide-gray-200">
+                                <tr>
+                                    <td colspan="6" class="px-4 py-8 text-center text-gray-500">Loading cells...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Fitness Chart -->
+                <div class="bg-white rounded-lg shadow mt-6">
+                    <div class="px-6 py-4 border-b border-gray-200">
+                        <h2 class="text-lg font-semibold text-gray-900">Fitness Evolution</h2>
+                        <p class="text-sm text-gray-600">Fitness progress over generations</p>
+                    </div>
+                    <div class="p-6">
+                        <canvas id="fitness-chart" height="100"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Cell Details -->
+            <div class="lg:col-span-1">
+                <div id="cell-details-panel" class="bg-white rounded-lg shadow">
+                    <div class="px-6 py-4 border-b border-gray-200">
+                        <h2 class="text-lg font-semibold text-gray-900">Cell Details</h2>
+                    </div>
+                    <div id="cell-details-content" class="p-6">
+                        <p class="text-sm text-gray-500 text-center py-8">Select a cell to view details</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script src="/static/dashboard.js"></script>
+</body>
+</html>
