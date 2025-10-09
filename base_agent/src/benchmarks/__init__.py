@@ -7,26 +7,26 @@ from typing import Type
 from collections import OrderedDict
 
 from .base import BaseBenchmark
-from .gpqa import GPQABenchmark
-from .aime import AIMEBenchmark
-from .drop import DROPBenchmark
-from .math import MATHBenchmark
-from .gsm8k import GSM8KBenchmark
-from .gsm_ic import GSMICBenchmark
-from .refute import RefuteBenchmark
-from .arc_agi import ARCAGIBenchmark
-from .humaneval import HumanEvalBenchmark
-from .file_editing import FileEditingBenchmark
-from .aiq_benchmark import AIQBenchmark
-from .livecodebench import LiveCodeBenchmark
-from .symbol_location import SymbolLocationBenchmark
-from .swebench_verified import SWEBenchBenchmark
-from .aiq_project_benchmarks import (
-    LinalgAIQBenchmark,
-    CSVParsingAIQBenchmark,
-    MessagingAppAIQBenchmark,
-    DistKVStoreAIQBenchmark,
-)
+# from .gpqa import GPQABenchmark
+# from .aime import AIMEBenchmark
+# from .drop import DROPBenchmark
+# from .math import MATHBenchmark
+# from .gsm8k import GSM8KBenchmark
+# from .gsm_ic import GSMICBenchmark
+# from .refute import RefuteBenchmark
+# from .arc_agi import ARCAGIBenchmark
+# from .humaneval import HumanEvalBenchmark
+# from .file_editing import FileEditingBenchmark
+# from .aiq_benchmark import AIQBenchmark
+# from .livecodebench import LiveCodeBenchmark
+# from .symbol_location import SymbolLocationBenchmark
+# from .swebench_verified import SWEBenchBenchmark
+# from .aiq_project_benchmarks import (
+#     LinalgAIQBenchmark,
+#     CSVParsingAIQBenchmark,
+#     MessagingAppAIQBenchmark,
+#     DistKVStoreAIQBenchmark,
+# )
 from .trading_benchmarks.trading_benchmark import TradingBenchmark
 
 # Important, append new benchmarks to the end of this

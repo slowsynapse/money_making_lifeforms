@@ -428,25 +428,38 @@ class CellRepository:
             row = cursor.fetchone()
             return self._row_to_cell(row) if row else None
 
-    def get_top_cells(self, limit: int = 10, status: str = 'online') -> List[Cell]:
+    def get_top_cells(self, limit: int = 10, status: str = 'online', min_trades: int = 0) -> List[Cell]:
         """
         Get top cells by fitness.
 
         Args:
             limit: Maximum number of cells to return
             status: Filter by status ('online', 'deprecated', 'archived', 'extinct')
+            min_trades: Minimum number of trades required (default 0). Use min_trades=1 to filter
+                       out zero-trade strategies for LLM analysis.
 
         Returns:
             List of Cell objects sorted by fitness descending
         """
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
-                SELECT * FROM cells
-                WHERE status = ?
-                ORDER BY fitness DESC
-                LIMIT ?
-            """, (status, limit))
+            if min_trades > 0:
+                # Filter cells that have at least one phenotype with min_trades
+                cursor.execute("""
+                    SELECT DISTINCT c.* FROM cells c
+                    INNER JOIN cell_phenotypes cp ON c.cell_id = cp.cell_id
+                    WHERE c.status = ?
+                      AND cp.total_trades >= ?
+                    ORDER BY c.fitness DESC
+                    LIMIT ?
+                """, (status, min_trades, limit))
+            else:
+                cursor.execute("""
+                    SELECT * FROM cells
+                    WHERE status = ?
+                    ORDER BY fitness DESC
+                    LIMIT ?
+                """, (status, limit))
             return [self._row_to_cell(row) for row in cursor.fetchall()]
 
     def get_lineage(self, cell_id: int) -> List[Cell]:

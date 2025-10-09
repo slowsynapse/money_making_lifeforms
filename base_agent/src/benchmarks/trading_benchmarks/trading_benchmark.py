@@ -356,12 +356,34 @@ Now generate your next strategy in `answer.txt`:**"""
         final_capital = cash
         trading_profit = final_capital - initial_capital
 
-        log = (
-            f"Backtest complete. Initial: ${initial_capital:.2f}, "
-            f"Final: ${final_capital:.2f}, Profit: ${trading_profit:.2f}, "
-            f"Fees: ${total_fees_paid:.2f} ({num_trades} trades), "
-            f"Traded on {len(market_data) - min_start_index} candles (skipped first {min_start_index} for lookback)"
-        )
+        # OPTION 1 & 2: Penalize zero-trade strategies
+        # A strategy that never trades is useless - it should be worse than attempting to trade
+        if num_trades == 0:
+            # Calculate buy-and-hold opportunity cost
+            # Use first available price (index 0) instead of min_start_index to avoid out-of-bounds
+            first_price = market_data.iloc[0]['close']
+            last_price = market_data.iloc[-1]['close']
+            buy_and_hold_return = ((last_price - first_price) / first_price) * initial_capital
+
+            # Penalty = opportunity cost + 10% of capital
+            # This ensures strategies that don't trade are ranked below active strategies
+            zero_trade_penalty = abs(buy_and_hold_return) + (initial_capital * 0.10)
+            trading_profit = -zero_trade_penalty
+            survived = False
+
+            log = (
+                f"PENALTY: No trades executed. "
+                f"Opportunity cost: ${abs(buy_and_hold_return):.2f}, "
+                f"Inactivity penalty: ${initial_capital * 0.10:.2f}, "
+                f"Total penalty: ${zero_trade_penalty:.2f}"
+            )
+        else:
+            log = (
+                f"Backtest complete. Initial: ${initial_capital:.2f}, "
+                f"Final: ${final_capital:.2f}, Profit: ${trading_profit:.2f}, "
+                f"Fees: ${total_fees_paid:.2f} ({num_trades} trades), "
+                f"Traded on {len(market_data) - min_start_index} candles (skipped first {min_start_index} for lookback)"
+            )
 
         return trading_profit, num_trades, survived, log
 

@@ -700,12 +700,15 @@ async def run_trading_learn(
         print(f"{'='*70}")
 
         # Get top cells for analysis (up to 100 cells, batch size 30 for 8K context)
-        top_cells = repo.get_top_cells(limit=100, status='online')
+        # IMPORTANT: Filter out zero-trade strategies (min_trades=1) to avoid learning from inactivity
+        top_cells = repo.get_top_cells(limit=100, status='online', min_trades=1)
         if not top_cells:
-            print(f"❌ No online cells found - cannot analyze patterns")
+            print(f"❌ No online cells with trades found - cannot analyze patterns")
+            print(f"   (Zero-trade strategies are excluded from LLM analysis)")
             return
 
-        print(f"📊 Analyzing top {len(top_cells)} cells for pattern discovery...")
+        print(f"📊 Analyzing top {len(top_cells)} active cells for pattern discovery...")
+        print(f"   (Filtering out zero-trade strategies)")
         cell_ids = [cell.cell_id for cell in top_cells]
 
         # Publish analysis start event
@@ -1394,7 +1397,7 @@ async def run_trading_evolve(
                 current_cell_id = parent_cell.cell_id
                 selection = "PARENT WINS"
 
-            # Track best ever
+            # Track best ever and update adaptive temperature
             if mutated_fitness > best_fitness:
                 best_fitness = mutated_fitness
                 best_strategy = mutated_strategy
@@ -1402,6 +1405,10 @@ async def run_trading_evolve(
                 best_cell_id = current_cell_id
                 generations_without_improvement = 0
                 print(f"🏆 NEW BEST! Fitness: ${best_fitness:.2f}")
+
+                # Update mutator temperature (cooling down - improvements found)
+                new_temp = mutator.update_temperature(best_fitness)
+                print(f"🌡️  Mutation temperature: {new_temp:.3f} (COOLING - strategy improving)")
 
                 # Auto-save best strategy
                 best_strategy_file = results_dir / "best_strategy.txt"
@@ -1416,6 +1423,11 @@ async def run_trading_evolve(
                     break
             else:
                 generations_without_improvement += 1
+
+                # Update mutator temperature (may heat up after 100 gens plateau)
+                new_temp = mutator.update_temperature(best_fitness)
+                if mutator.gens_without_improvement == 0:  # Just reset after heating
+                    print(f"🌡️  Mutation temperature: {new_temp:.3f} (HEATED UP after 100-gen plateau - trying complexity)")
 
             population_history.append({
                 'generation': gen,

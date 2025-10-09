@@ -10,7 +10,70 @@ class DslMutator:
     """
     Applies mutations to a DSL program to evolve it.
     Supports multi-rule programs with various mutation strategies.
+
+    Adaptive Mutation Rates (Option D):
+    - Temperature controls complexity of mutations
+    - Cold (0.1): 98% simple mutations, 2% complex (exploitation)
+    - Hot (1.0): 10% simple mutations, 90% complex (exploration)
+    - Auto-adjusts: cools when improving, heats when stuck
     """
+    def __init__(self):
+        """Initialize mutator with adaptive temperature system."""
+        self.temperature = 0.3  # Start cool (favor simple mutations)
+        self.last_best_fitness = float('-inf')
+        self.gens_without_improvement = 0
+
+    def update_temperature(self, current_best_fitness: float) -> float:
+        """
+        Adjust mutation temperature based on evolutionary progress.
+
+        Args:
+            current_best_fitness: Best fitness achieved so far
+
+        Returns:
+            Updated temperature value
+        """
+        if current_best_fitness > self.last_best_fitness:
+            # Improving! Cool down (keep it simple - current approach works)
+            self.temperature *= 0.95
+            self.gens_without_improvement = 0
+        else:
+            # Stagnant! Track plateau
+            self.gens_without_improvement += 1
+
+            # Heat up after 100 generations without improvement
+            if self.gens_without_improvement >= 100:
+                self.temperature *= 1.2
+                self.gens_without_improvement = 0  # Reset counter after heating
+
+        # Clamp temperature to [0.1, 1.0]
+        self.temperature = max(0.1, min(1.0, self.temperature))
+        self.last_best_fitness = current_best_fitness
+
+        return self.temperature
+
+    def _get_adaptive_probability(self, base_prob: float, is_complexity: bool) -> float:
+        """
+        Scale mutation probability based on current temperature.
+
+        Args:
+            base_prob: Base probability when temperature = 0.5
+            is_complexity: True if this adds complexity, False if simple mutation
+
+        Returns:
+            Scaled probability based on temperature
+        """
+        if is_complexity:
+            # Complex mutations increase with temperature
+            # At temp=0.1: prob *= 0.2 (reduce to 20%)
+            # At temp=1.0: prob *= 2.0 (increase to 200%)
+            return base_prob * (self.temperature * 2.0)
+        else:
+            # Simple mutations decrease with temperature
+            # At temp=0.1: prob *= 1.9 (increase to 190%)
+            # At temp=1.0: prob *= 1.0 (stay at 100%)
+            return base_prob * (2.0 - self.temperature)
+
     def mutate(self, program: DslProgram) -> DslProgram:
         """
         Applies a random mutation to the program.
@@ -127,47 +190,52 @@ class DslMutator:
 
     def _mutate_expression(self, expr: Expression) -> Expression:
         """
-        Mutate an expression (V2-aware with aggregation functions and multi-timeframe).
+        Mutate an expression (V2-aware with adaptive probabilities).
         Can mutate simple indicators, arithmetic operations, or aggregation functions.
+        Uses adaptive temperature to control complexity.
         """
         if isinstance(expr, IndicatorValue):
-            # For simple indicators, randomly either:
-            # 1. Change the indicator (40%)
-            # 2. Change the parameter (40%)
-            # 3. Change the timeframe (5% - DSL V2 Phase 4)
-            # 4. Wrap in arithmetic operation (10% chance)
-            # 5. Convert to aggregation function (5% chance - DSL V2 Phase 2)
+            # Adaptive probabilities based on temperature
+            # Base probabilities at temp=0.5
+            prob_aggregation = self._get_adaptive_probability(0.05, is_complexity=True)  # 1%-10%
+            prob_timeframe = self._get_adaptive_probability(0.05, is_complexity=True)    # 1%-10%
+            prob_arithmetic = self._get_adaptive_probability(0.10, is_complexity=True)   # 2%-20%
+
+            # Remaining probability goes to simple mutations
+            prob_complex_total = prob_aggregation + prob_timeframe + prob_arithmetic
 
             rand = random.random()
-            if rand < 0.05:
-                # Convert to aggregation function
+            if rand < prob_aggregation:
+                # Convert to aggregation function (adaptive: 1%-10%)
                 func = random.choice(list(AggregationFunc))
                 window = random.choice([5, 10, 14, 20, 30, 50])
-                print(f"  - Converted to aggregation: {func.value}({expr.indicator.value}, {window})")
+                print(f"  - Converted to aggregation: {func.value}({expr.indicator.value}, {window}) [temp={self.temperature:.2f}]")
                 return FunctionCall(func=func, indicator=expr.indicator, window=window, timeframe=expr.timeframe)
-            elif rand < 0.10:
-                # Change timeframe (DSL V2 Phase 4)
+            elif rand < prob_aggregation + prob_timeframe:
+                # Change timeframe (adaptive: 1%-10%)
                 timeframes = [tf for tf in Timeframe if tf != expr.timeframe]
                 new_timeframe = random.choice(timeframes)
                 old_tf_str = expr.timeframe.value if expr.timeframe.value else "DEFAULT"
                 new_tf_str = new_timeframe.value if new_timeframe.value else "DEFAULT"
-                print(f"  - Changed timeframe: {old_tf_str} → {new_tf_str}")
+                print(f"  - Changed timeframe: {old_tf_str} → {new_tf_str} [temp={self.temperature:.2f}]")
                 expr.timeframe = new_timeframe
                 return expr
-            elif rand < 0.20:
-                # Wrap in arithmetic
-                print(f"  - Wrapped in arithmetic operation")
+            elif rand < prob_complex_total:
+                # Wrap in arithmetic (adaptive: 2%-20%)
+                print(f"  - Wrapped in arithmetic operation [temp={self.temperature:.2f}]")
                 return self._wrap_in_arithmetic(expr)
-            elif random.random() < 0.5:
-                # Change indicator
-                new_indicator = random.choice([ind for ind in Indicator if ind != expr.indicator])
-                print(f"  - Changed indicator: {expr.indicator.value} → {new_indicator.value}")
-                expr.indicator = new_indicator
             else:
-                # Change parameter
-                new_param = random.choice([0, 5, 10, 14, 20, 30, 50, 100, 200])
-                print(f"  - Changed parameter: {expr.param} → {new_param}")
-                expr.param = new_param
+                # Simple mutations (adaptive: 70%-96%)
+                if random.random() < 0.5:
+                    # Change indicator
+                    new_indicator = random.choice([ind for ind in Indicator if ind != expr.indicator])
+                    print(f"  - Changed indicator: {expr.indicator.value} → {new_indicator.value}")
+                    expr.indicator = new_indicator
+                else:
+                    # Change parameter
+                    new_param = random.choice([0, 5, 10, 14, 20, 30, 50, 100, 200])
+                    print(f"  - Changed parameter: {expr.param} → {new_param}")
+                    expr.param = new_param
             return expr
 
         elif isinstance(expr, FunctionCall):
@@ -228,20 +296,17 @@ class DslMutator:
 
     def _mutate_condition(self, condition: ConditionType) -> ConditionType:
         """
-        Mutate a condition (simple or compound).
+        Mutate a condition (simple or compound) with adaptive probabilities.
         Can convert simple → compound, compound → simple, or mutate within type.
         """
         if isinstance(condition, Condition):
-            # Simple condition - randomly either:
-            # 1. Mutate the operator (40%)
-            # 2. Mutate left expression (25%)
-            # 3. Mutate right expression (25%)
-            # 4. Convert to compound condition (10% - DSL V2 Phase 3)
+            # Adaptive probability for compound conversion
+            prob_compound = self._get_adaptive_probability(0.10, is_complexity=True)  # 2%-20%
 
             rand = random.random()
-            if rand < 0.10:
-                # Convert to compound condition (combine with another random condition)
-                print(f"  - Converting simple to compound condition")
+            if rand < prob_compound:
+                # Convert to compound condition (adaptive: 2%-20%)
+                print(f"  - Converting simple to compound condition [temp={self.temperature:.2f}]")
                 logical_op = random.choice([LogicalOp.AND, LogicalOp.OR])
 
                 # Create a new random simple condition
