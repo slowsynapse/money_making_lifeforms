@@ -2,7 +2,8 @@ import random
 import copy
 from .grammar import (
     DslProgram, Operator, Rule, Indicator, Action, Condition,
-    ArithmeticOp, IndicatorValue, BinaryOp, FunctionCall, AggregationFunc, Expression
+    ArithmeticOp, IndicatorValue, BinaryOp, FunctionCall, AggregationFunc, Expression,
+    CompoundCondition, LogicalOp, ConditionType
 )
 
 class DslMutator:
@@ -70,39 +71,26 @@ class DslMutator:
     def _mutate_rule(self, rule: Rule) -> Rule:
         """
         Mutate a single rule by changing one component.
-        Supports both V1 (legacy) and V2 (expression-based) rules.
+        Supports both V1 (legacy), V2 (expression-based), and V3 (compound conditions) rules.
         """
         # Ensure condition has V2 expressions (Condition.__post_init__ should handle this)
-        if rule.condition.left is None:
-            rule.condition.left = IndicatorValue(rule.condition.indicator1, rule.condition.param1)
-        if rule.condition.right is None:
-            rule.condition.right = IndicatorValue(rule.condition.indicator2, rule.condition.param2)
+        if isinstance(rule.condition, Condition):
+            if rule.condition.left is None:
+                rule.condition.left = IndicatorValue(rule.condition.indicator1, rule.condition.param1)
+            if rule.condition.right is None:
+                rule.condition.right = IndicatorValue(rule.condition.indicator2, rule.condition.param2)
 
         # Choose mutation target
-        mutation_type = random.choice([
-            "operator", "left_expr", "right_expr", "true_action", "false_action"
-        ])
+        mutation_options = ["condition", "true_action", "false_action"]
+        mutation_type = random.choice(mutation_options)
 
-        if mutation_type == "operator":
-            possible_operators = [op for op in Operator if op != rule.condition.operator]
-            new_op = random.choice(possible_operators)
-            print(f"  - Changed operator: {rule.condition.operator.value} → {new_op.value}")
-            rule.condition.operator = new_op
-
-        elif mutation_type == "left_expr":
-            print(f"  - Mutating left expression")
-            rule.condition.left = self._mutate_expression(rule.condition.left)
-
-        elif mutation_type == "right_expr":
-            print(f"  - Mutating right expression")
-            rule.condition.right = self._mutate_expression(rule.condition.right)
-
+        if mutation_type == "condition":
+            rule.condition = self._mutate_condition(rule.condition)
         elif mutation_type == "true_action":
             possible_actions = [a for a in Action if a != rule.true_action]
             new_action = random.choice(possible_actions)
             print(f"  - Changed true_action: {rule.true_action.value} → {new_action.value}")
             rule.true_action = new_action
-
         elif mutation_type == "false_action":
             possible_actions = [a for a in Action if a != rule.false_action]
             new_action = random.choice(possible_actions)
@@ -219,6 +207,110 @@ class DslMutator:
             return expr
 
         return expr
+
+    def _mutate_condition(self, condition: ConditionType) -> ConditionType:
+        """
+        Mutate a condition (simple or compound).
+        Can convert simple → compound, compound → simple, or mutate within type.
+        """
+        if isinstance(condition, Condition):
+            # Simple condition - randomly either:
+            # 1. Mutate the operator (40%)
+            # 2. Mutate left expression (25%)
+            # 3. Mutate right expression (25%)
+            # 4. Convert to compound condition (10% - DSL V2 Phase 3)
+
+            rand = random.random()
+            if rand < 0.10:
+                # Convert to compound condition (combine with another random condition)
+                print(f"  - Converting simple to compound condition")
+                logical_op = random.choice([LogicalOp.AND, LogicalOp.OR])
+
+                # Create a new random simple condition
+                new_condition = Condition(
+                    left=IndicatorValue(
+                        indicator=random.choice(list(Indicator)),
+                        param=random.choice([0, 5, 10, 14, 20, 30, 50])
+                    ),
+                    right=IndicatorValue(
+                        indicator=random.choice(list(Indicator)),
+                        param=random.choice([0, 5, 10, 14, 20, 30, 50])
+                    ),
+                    operator=random.choice(list(Operator))
+                )
+
+                return CompoundCondition(op=logical_op, left=condition, right=new_condition)
+
+            elif rand < 0.50:
+                # Mutate operator
+                possible_operators = [op for op in Operator if op != condition.operator]
+                new_op = random.choice(possible_operators)
+                print(f"  - Changed operator: {condition.operator.value} → {new_op.value}")
+                condition.operator = new_op
+                return condition
+
+            elif rand < 0.75:
+                # Mutate left expression
+                print(f"  - Mutating left expression")
+                condition.left = self._mutate_expression(condition.left)
+                return condition
+
+            else:
+                # Mutate right expression
+                print(f"  - Mutating right expression")
+                condition.right = self._mutate_expression(condition.right)
+                return condition
+
+        elif isinstance(condition, CompoundCondition):
+            # Compound condition - randomly either:
+            # 1. Change logical operator (AND ↔ OR) (20%)
+            # 2. Mutate left condition (30%)
+            # 3. Mutate right condition (30%)
+            # 4. Wrap in NOT (5%)
+            # 5. Simplify to left condition only (10%)
+            # 6. Simplify to right condition only (5%)
+
+            rand = random.random()
+            if rand < 0.10 and condition.op != LogicalOp.NOT:
+                # Simplify to left condition
+                print(f"  - Simplified compound condition to left side")
+                return condition.left
+
+            elif rand < 0.15 and condition.op != LogicalOp.NOT:
+                # Simplify to right condition
+                print(f"  - Simplified compound condition to right side")
+                return condition.right
+
+            elif rand < 0.20:
+                # Wrap in NOT
+                print(f"  - Wrapped condition in NOT")
+                return CompoundCondition(op=LogicalOp.NOT, left=condition)
+
+            elif rand < 0.40 and condition.op != LogicalOp.NOT:
+                # Change logical operator (AND ↔ OR)
+                new_op = LogicalOp.OR if condition.op == LogicalOp.AND else LogicalOp.AND
+                print(f"  - Changed logical operator: {condition.op.value} → {new_op.value}")
+                condition.op = new_op
+                return condition
+
+            elif rand < 0.70:
+                # Mutate left condition
+                print(f"  - Mutating left side of compound condition")
+                condition.left = self._mutate_condition(condition.left)
+                return condition
+
+            else:
+                # Mutate right condition (if exists)
+                if condition.right is not None:
+                    print(f"  - Mutating right side of compound condition")
+                    condition.right = self._mutate_condition(condition.right)
+                else:
+                    # For NOT, unwrap it
+                    print(f"  - Unwrapped NOT condition")
+                    return condition.left
+                return condition
+
+        return condition
 
     def _create_random_rule(self) -> Rule:
         """

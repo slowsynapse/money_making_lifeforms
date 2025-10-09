@@ -4,7 +4,8 @@ import numpy as np
 from collections import Counter
 from .grammar import (
     Indicator, Operator, Action, Condition, Rule, DslProgram, AggregationMode,
-    ArithmeticOp, IndicatorValue, BinaryOp, FunctionCall, AggregationFunc, Expression
+    ArithmeticOp, IndicatorValue, BinaryOp, FunctionCall, AggregationFunc, Expression,
+    CompoundCondition, LogicalOp, ConditionType
 )
 
 class DslInterpreter:
@@ -258,58 +259,103 @@ class DslInterpreter:
         else:
             raise TypeError(f"Unknown expression type: {type(expression)}")
 
-    def _execute_single_rule(self, rule: Rule, market_data: pd.DataFrame | dict, current_index: int = None) -> Action:
-        """Execute a single rule and return its action. Supports both V1 and V2 conditions."""
+    def _evaluate_condition(
+        self,
+        condition: ConditionType,
+        market_data: pd.DataFrame,
+        current_index: int
+    ) -> bool:
+        """
+        Evaluate a condition (simple or compound) to a boolean result.
 
-        # Backward compatibility: if market_data is a dict, use dummy values
-        if isinstance(market_data, dict):
-            left_value = 100
-            right_value = 98
-        else:
-            # New path: use real market data with lookback
-            if current_index is None:
-                raise ValueError("current_index must be provided when market_data is a DataFrame")
+        Args:
+            condition: Condition or CompoundCondition
+            market_data: Full DataFrame with OHLCV data
+            current_index: Current row index
 
-            # V2: Use expression evaluation if condition has left/right expressions
-            if rule.condition.left is not None and rule.condition.right is not None:
+        Returns:
+            Boolean result of the condition evaluation
+        """
+        if isinstance(condition, Condition):
+            # Simple condition - evaluate left and right expressions, then compare
+            if condition.left is not None and condition.right is not None:
                 left_value = self._evaluate_expression(
-                    rule.condition.left,
+                    condition.left,
                     market_data,
                     current_index
                 )
                 right_value = self._evaluate_expression(
-                    rule.condition.right,
+                    condition.right,
                     market_data,
                     current_index
                 )
             else:
                 # V1: Use legacy indicator1/indicator2 fields
                 left_value = self._get_indicator_value(
-                    rule.condition.indicator1,
-                    rule.condition.param1,
+                    condition.indicator1,
+                    condition.param1,
                     market_data,
                     current_index
                 )
                 right_value = self._get_indicator_value(
-                    rule.condition.indicator2,
-                    rule.condition.param2,
+                    condition.indicator2,
+                    condition.param2,
                     market_data,
                     current_index
                 )
 
-        # Evaluate the condition
-        condition_met = False
-        op = rule.condition.operator
-        if op == Operator.GREATER_THAN:
-            condition_met = left_value > right_value
-        elif op == Operator.LESS_THAN:
-            condition_met = left_value < right_value
-        elif op == Operator.GREATER_THAN_OR_EQUAL:
-            condition_met = left_value >= right_value
-        elif op == Operator.LESS_THAN_OR_EQUAL:
-            condition_met = left_value <= right_value
-        elif op == Operator.EQUAL:
-            condition_met = left_value == right_value
+            # Apply comparison operator
+            op = condition.operator
+            if op == Operator.GREATER_THAN:
+                return left_value > right_value
+            elif op == Operator.LESS_THAN:
+                return left_value < right_value
+            elif op == Operator.GREATER_THAN_OR_EQUAL:
+                return left_value >= right_value
+            elif op == Operator.LESS_THAN_OR_EQUAL:
+                return left_value <= right_value
+            elif op == Operator.EQUAL:
+                return left_value == right_value
+            else:
+                raise ValueError(f"Unknown operator: {op}")
+
+        elif isinstance(condition, CompoundCondition):
+            # Compound condition - recursively evaluate left and right conditions
+            left_result = self._evaluate_condition(condition.left, market_data, current_index)
+
+            if condition.op == LogicalOp.NOT:
+                return not left_result
+            elif condition.op == LogicalOp.AND:
+                # Short-circuit evaluation for AND
+                if not left_result:
+                    return False
+                right_result = self._evaluate_condition(condition.right, market_data, current_index)
+                return right_result
+            elif condition.op == LogicalOp.OR:
+                # Short-circuit evaluation for OR
+                if left_result:
+                    return True
+                right_result = self._evaluate_condition(condition.right, market_data, current_index)
+                return right_result
+            else:
+                raise ValueError(f"Unknown logical operator: {condition.op}")
+        else:
+            raise TypeError(f"Unknown condition type: {type(condition)}")
+
+    def _execute_single_rule(self, rule: Rule, market_data: pd.DataFrame | dict, current_index: int = None) -> Action:
+        """Execute a single rule and return its action. Supports both V1 and V2 conditions."""
+
+        # Backward compatibility: if market_data is a dict, use dummy values
+        if isinstance(market_data, dict):
+            # Legacy mode - fake condition evaluation
+            condition_met = True
+        else:
+            # New path: use real market data with lookback
+            if current_index is None:
+                raise ValueError("current_index must be provided when market_data is a DataFrame")
+
+            # Evaluate the condition (supports simple and compound conditions)
+            condition_met = self._evaluate_condition(rule.condition, market_data, current_index)
 
         if condition_met:
             return rule.true_action
@@ -378,36 +424,64 @@ class DslInterpreter:
         else:
             return str(expr)
 
+    def _condition_to_string(self, condition: ConditionType) -> str:
+        """Convert a condition (simple or compound) to its string representation."""
+        if isinstance(condition, Condition):
+            # Simple condition
+            if condition.left is not None and condition.right is not None:
+                left_str = self._expression_to_string(condition.left)
+                right_str = self._expression_to_string(condition.right)
+            else:
+                # V1: Use legacy indicator1/indicator2 fields
+                ind1 = condition.indicator1.value
+                param1 = f"({condition.param1})" if condition.param1 else "()"
+                left_str = f"{ind1}{param1}"
+
+                ind2 = condition.indicator2.value
+                param2 = f"({condition.param2})" if condition.param2 else "()"
+                right_str = f"{ind2}{param2}"
+
+            op = condition.operator.value
+            return f"{left_str} {op} {right_str}"
+
+        elif isinstance(condition, CompoundCondition):
+            # Compound condition
+            if condition.op == LogicalOp.NOT:
+                inner = self._condition_to_string(condition.left)
+                # Add parentheses if inner is also compound
+                if isinstance(condition.left, CompoundCondition):
+                    inner = f"({inner})"
+                return f"NOT {inner}"
+            else:  # AND, OR
+                left = self._condition_to_string(condition.left)
+                right = self._condition_to_string(condition.right)
+
+                # Add parentheses if children are compound
+                if isinstance(condition.left, CompoundCondition):
+                    left = f"({left})"
+                if isinstance(condition.right, CompoundCondition):
+                    right = f"({right})"
+
+                return f"{left} {condition.op.value} {right}"
+        else:
+            return str(condition)
+
     def to_string(self, program: DslProgram) -> str:
         """
         Convert a DslProgram back to a string representation.
         Multiple rules are separated by newlines.
-        Supports both V1 and V2 syntax.
+        Supports both V1 and V2 syntax (including compound conditions).
         """
         if not program:
             return ""
 
         rule_strings = []
         for rule in program:
-            # V2: Use expression-based formatting if available
-            if rule.condition.left is not None and rule.condition.right is not None:
-                left_str = self._expression_to_string(rule.condition.left)
-                right_str = self._expression_to_string(rule.condition.right)
-            else:
-                # V1: Use legacy indicator1/indicator2 fields
-                ind1 = rule.condition.indicator1.value
-                param1 = f"({rule.condition.param1})" if rule.condition.param1 else "()"
-                left_str = f"{ind1}{param1}"
-
-                ind2 = rule.condition.indicator2.value
-                param2 = f"({rule.condition.param2})" if rule.condition.param2 else "()"
-                right_str = f"{ind2}{param2}"
-
-            op = rule.condition.operator.value
+            condition_str = self._condition_to_string(rule.condition)
             true_action = rule.true_action.value
             false_action = rule.false_action.value
 
-            rule_str = f"IF {left_str} {op} {right_str} THEN {true_action} ELSE {false_action}"
+            rule_str = f"IF {condition_str} THEN {true_action} ELSE {false_action}"
             rule_strings.append(rule_str)
 
         return "\n".join(rule_strings)

@@ -40,6 +40,12 @@ class AggregationFunc(Enum):
     MIN = "MIN"      # Minimum over a window
     STD = "STD"      # Standard deviation over a window
 
+class LogicalOp(Enum):
+    """Logical operators for DSL V2 Phase 3."""
+    AND = "AND"
+    OR = "OR"
+    NOT = "NOT"
+
 @dataclass
 class IndicatorValue:
     """A single indicator with its parameter (e.g., DELTA(10))."""
@@ -85,8 +91,29 @@ class Condition:
             self.right = IndicatorValue(self.indicator2, self.param2)
 
 @dataclass
+class CompoundCondition:
+    """Compound condition with logical operators (e.g., cond1 AND cond2, NOT cond1)."""
+    op: LogicalOp
+    left: Union['CompoundCondition', Condition] = None
+    right: Union['CompoundCondition', Condition] = None  # None for NOT operator
+
+    def __post_init__(self):
+        """Validate compound condition structure."""
+        if self.op == LogicalOp.NOT:
+            if self.left is None:
+                raise ValueError("NOT operator requires a left operand")
+            if self.right is not None:
+                raise ValueError("NOT operator cannot have a right operand")
+        else:  # AND, OR
+            if self.left is None or self.right is None:
+                raise ValueError(f"{self.op.value} operator requires both left and right operands")
+
+# Condition type can be simple or compound
+ConditionType = Union[Condition, CompoundCondition]
+
+@dataclass
 class Rule:
-    condition: Condition
+    condition: ConditionType  # Can be Condition or CompoundCondition
     true_action: Action
     false_action: Action
 
