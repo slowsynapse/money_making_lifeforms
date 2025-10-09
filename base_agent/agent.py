@@ -596,217 +596,359 @@ async def run_trading_learn(
     cost_threshold: float | None,
 ):
     """
-    Agent learns to generate profitable DSL trading strategies.
-    
-    The agent is given feedback on each attempt and learns to improve.
-    This combines LLM reasoning with evolutionary pressure.
+    LLM-Guided Evolution: Intelligent mutation of existing cell library.
+
+    This mode requires a cell database from a prior `trading-evolve` run.
+    It uses the LLM to:
+    1. Analyze top cells and discover patterns
+    2. Propose intelligent mutations based on pattern analysis
+    3. Test proposed mutations and birth new cells
+
+    This is 100% LLM-guided (no random mutations), designed for exploitation
+    of discovered patterns after exploration via trading-evolve.
+
+    Args:
+        iterations: Number of LLM-guided mutation iterations
+        workdir: Working directory (expects cells.db in workdir/evolution/)
+        logdir: Optional log directory
+        server_enabled: Whether to run the web server
+        cost_threshold: Optional cost limit for LLM usage
     """
     print("\n" + "="*70)
-    print("TRADING STRATEGY LEARNING MODE")
+    print("TRADING STRATEGY LEARNING MODE (LLM-Guided Evolution)")
     print("="*70)
-    print(f"\nThe agent will attempt to generate {iterations} profitable strategies.")
-    print("After each attempt, it will see its fitness score and learn from the result.\n")
-    
+    print(f"\n🧠 LLM will analyze cells and propose {iterations} intelligent mutations.")
+    print("💡 Requires cell database from prior trading-evolve run.\n")
+
     try:
         from .src.benchmarks.trading_benchmarks.trading_benchmark import TradingBenchmark
-        
+        from .src.dsl.interpreter import DslInterpreter
+        from .src.storage.cell_repository import CellRepository
+        from .src.data.hyperliquid_fetcher import HyperliquidDataFetcher
+        from .src.analysis import (
+            analyze_cells_in_batches,
+            merge_pattern_discoveries,
+            propose_intelligent_mutation,
+        )
+
+        # Create results directory
+        results_dir = workdir / "evolution"
+        results_dir.mkdir(parents=True, exist_ok=True)
+
+        # Load cell database
+        db_path = results_dir / "cells.db"
+        if not db_path.exists():
+            print(f"\n❌ Error: Cell database not found at {db_path}")
+            print(f"   Please run 'trading-evolve' first to build a cell library.")
+            return
+
+        repo = CellRepository(db_path)
+        print(f"📊 Loaded cell database: {db_path}")
+
+        # Check if database has cells
+        total_cells = repo.get_cell_count()
+        if total_cells == 0:
+            print(f"\n❌ Error: Cell database is empty (0 cells found)")
+            print(f"   Please run 'trading-evolve' first to populate the database.")
+            return
+
+        print(f"✓ Found {total_cells} cells in database")
+
+        # Initialize components
         benchmark = TradingBenchmark()
-        problem_id = "trend_following_1"
-        base_problem = benchmark.get_problem(problem_id)
-        
-        # Display initial state
-        state = benchmark.get_state()
-        print(f"\n💰 INITIAL STATE:")
-        print(f"   Agent Balance: ${state['balance']:.2f}")
-        print(f"   Starting Capital per Trade: ${state['initial_capital']:.2f}")
-        print(f"   Transaction Cost: ${state['transaction_cost']:.2f}")
-        
-        # Track history
+        interpreter = DslInterpreter()
+
+        # Start evolution run tracking for this learn session
+        run_id = repo.start_evolution_run(
+            run_type='trading-learn',
+            max_generations=iterations,
+            fitness_goal=None,  # No specific goal for learn mode
+            symbol='PURR',
+            timeframe='multi',
+            initial_capital=100.0,
+            transaction_fee_rate=0.00045,
+        )
+        print(f"🧬 LLM-guided run #{run_id} started")
+
+        # Fetch multi-timeframe data for testing
+        print(f"\n📈 Fetching multi-timeframe market data...")
+        fetcher = HyperliquidDataFetcher()
+        multi_tf_data = fetcher.fetch_multi_timeframe('PURR', lookback_days=30)
+
+        # PHASE 1: Pattern Discovery
+        print(f"\n{'='*70}")
+        print(f"PHASE 1: PATTERN DISCOVERY")
+        print(f"{'='*70}")
+
+        # Get top cells for analysis (up to 100 cells, batch size 30 for 8K context)
+        top_cells = repo.get_top_cells(limit=100, status='online')
+        if not top_cells:
+            print(f"❌ No online cells found - cannot analyze patterns")
+            return
+
+        print(f"📊 Analyzing top {len(top_cells)} cells for pattern discovery...")
+        cell_ids = [cell.cell_id for cell in top_cells]
+
+        # Analyze cells in batches (30 cells per batch for Gemma 8K context)
+        batch_results = await analyze_cells_in_batches(
+            repo=repo,
+            cell_ids=cell_ids,
+            batch_size=30,
+            use_json=True,
+        )
+
+        # Merge and deduplicate patterns
+        patterns = await merge_pattern_discoveries(batch_results)
+
+        print(f"\n✓ Pattern discovery complete!")
+        print(f"   Unique patterns identified: {len(patterns['patterns'])}")
+
+        # Display discovered patterns
+        if patterns['patterns']:
+            print(f"\n🔍 DISCOVERED PATTERNS:")
+            for pattern in patterns['patterns'][:5]:  # Show top 5
+                print(f"   - {pattern['pattern_name']} ({pattern['pattern_category']})")
+                print(f"     {pattern['explanation']}")
+                print(f"     Used by {pattern['num_cells']} cells")
+                print()
+
+        # PHASE 2: Intelligent Mutation Loop
+        print(f"\n{'='*70}")
+        print(f"PHASE 2: INTELLIGENT MUTATION ({iterations} iterations)")
+        print(f"{'='*70}")
+
+        # Track statistics
+        cells_birthed = 0
+        mutations_failed = 0
+        total_cost = 0.0
         history = []
-        best_fitness = float('-inf')
+        best_fitness = repo.get_top_cells(limit=1, status='online')[0].fitness if top_cells else float('-inf')
         best_strategy = None
-        
+        best_cell_id = None
+
         for iteration in range(iterations):
             print(f"\n{'='*70}")
             print(f"ITERATION {iteration + 1}/{iterations}")
             print(f"{'='*70}")
-            
-            # Get problem with history context
-            if history:
-                problem = benchmark.get_problem_with_history(problem_id, history)
-                print(f"\nAgent has {len(history)} previous attempts to learn from...")
-            else:
-                problem = base_problem
-                print("\nFirst attempt - no history yet...")
-            
-            # Setup workdir for this iteration
-            iter_workdir = workdir / f"iteration_{iteration}"
-            iter_logdir = (logdir / f"iteration_{iteration}") if logdir else (iter_workdir / "logs")
-            iter_workdir.mkdir(parents=True, exist_ok=True)
-            iter_logdir.mkdir(parents=True, exist_ok=True)
-            
-            # Setup problem data
-            await benchmark.setup_problem(base_problem, iter_workdir, "learn_container")
-            
-            # Run the agent to generate a strategy
-            agent = Agent(
-                workdir=iter_workdir,
-                logdir=iter_logdir,
-                server_enabled=server_enabled,
-                debug_mode=False,
+
+            # Check cost threshold
+            if cost_threshold and total_cost >= cost_threshold:
+                print(f"\n⚠️  Cost threshold reached: ${total_cost:.4f} >= ${cost_threshold:.4f}")
+                print(f"Terminating early to stay within budget")
+                break
+
+            # Select parent cell (best cell)
+            parent_cell = repo.get_top_cells(limit=1, status='online')[0]
+            print(f"\n📍 Parent: Cell #{parent_cell.cell_id} (${parent_cell.fitness:.2f})")
+            print(f"   Strategy: {parent_cell.dsl_genome}")
+
+            # LLM proposes intelligent mutation
+            print(f"\n🧠 LLM analyzing cell and proposing mutation...")
+
+            proposal = await propose_intelligent_mutation(
+                cell=parent_cell,
+                patterns=patterns,
+                repo=repo,
+                use_json=True,
             )
-            
-            print(f"\n🤖 Agent is thinking and generating a strategy...")
-            
-            try:
-                tokens, cached, cost, duration = await agent.exec(
-                    problem=problem.statement,
-                    timeout=180,  # 3 minute timeout per iteration
-                    cost_threshold=cost_threshold,
-                )
-                
-                await agent.create_report()
-                
-                # Read the generated strategy (agent writes to logdir)
-                answer_file = iter_logdir / "answer.txt"
-                if answer_file.exists():
-                    strategy = answer_file.read_text().strip()
-                    print(f"\n📝 Generated Strategy: {strategy}")
-                    
-                    # Test the strategy
-                    print(f"\n⚙️  Running backtest...")
-                    score, error, discussion = await benchmark.score_problem(
-                        base_problem,
-                        str(iter_workdir),
-                        str(iter_logdir),  # answer.txt is in logdir
-                        "learn_container"
-                    )
-                    
-                    # Update benchmark state with actual results
-                    # Extract trading profit from the score (score already includes LLM cost subtraction)
-                    trading_profit = score + cost  # Reverse the fitness calculation to get raw profit
-                    actual_fitness = benchmark.update_state(trading_profit, cost, score > 0)
-                    
-                    # Record result
-                    survived = score > 0
-                    result = {
-                        'iteration': iteration + 1,
-                        'strategy': strategy,
-                        'fitness': actual_fitness,
-                        'survived': survived,
-                        'llm_cost': cost,
-                        'tokens': tokens,
-                        'duration': duration,
-                    }
-                    
-                    if error:
-                        result['death_reason'] = error
-                    elif not survived:
-                        result['death_reason'] = "Fitness ≤ 0"
-                    
-                    history.append(result)
-                    
-                    # Display results
-                    print(f"\n{'='*70}")
-                    print(f"RESULTS FOR ITERATION {iteration + 1}")
-                    print(f"{'='*70}")
-                    print(f"Strategy: {strategy}")
-                    print(f"Fitness: ${score:.2f}")
-                    print(f"Status: {'✓ SURVIVED' if survived else '✗ DIED'}")
-                    print(f"LLM Cost: ${cost:.4f}")
-                    print(f"Tokens: {tokens:,} (cached: {cached})")
-                    print(f"Duration: {duration:.2f}s")
-                    print(f"\nDetails: {discussion}")
-                    
-                    # Update best
-                    if score > best_fitness:
-                        best_fitness = score
-                        best_strategy = strategy
-                        print(f"\n🏆 NEW BEST STRATEGY! Fitness: ${best_fitness:.2f}")
-                    
-                    # Show current state
-                    current_state = benchmark.get_state()
-                    print(f"\n💰 AGENT STATE AFTER ITERATION {iteration + 1}:")
-                    print(f"   Current Balance: ${current_state['balance']:.2f}")
-                    print(f"   Net Result: ${current_state['net_result']:.2f}")
-                    print(f"   Total Attempts: {current_state['attempts']}")
-                    
-                    if current_state['balance'] <= 0:
-                        print(f"\n⚠️  WARNING: Agent balance depleted! Agent would be bankrupt.")
-                    
-                else:
-                    print(f"\n❌ Agent failed to create answer.txt")
-                    history.append({
-                        'iteration': iteration + 1,
-                        'strategy': 'None',
-                        'fitness': -1000,
-                        'survived': False,
-                        'death_reason': 'No answer file created',
-                        'llm_cost': cost,
-                    })
-                    
-            except Exception as e:
-                print(f"\n❌ Error during iteration {iteration + 1}: {e}")
+
+            # Track LLM cost (rough estimate: ~0.0001 per proposal)
+            iteration_cost = 0.0001
+            total_cost += iteration_cost
+
+            if not proposal:
+                print(f"  ❌ LLM failed to propose valid mutation")
+                mutations_failed += 1
                 history.append({
                     'iteration': iteration + 1,
-                    'strategy': 'Error',
-                    'fitness': -1000,
+                    'parent_cell_id': parent_cell.cell_id,
+                    'proposed_strategy': None,
+                    'fitness': None,
                     'survived': False,
-                    'death_reason': str(e),
-                    'llm_cost': 0,
+                    'llm_cost': iteration_cost,
+                    'status': 'proposal_failed',
                 })
-        
+                continue
+
+            proposed_strategy = proposal['proposed_strategy']
+            rationale = proposal.get('rationale', 'N/A')
+            confidence = proposal.get('confidence', 'unknown')
+
+            print(f"\n✅ Mutation proposed:")
+            print(f"   Strategy: {proposed_strategy}")
+            print(f"   Rationale: {rationale[:100]}...")
+            print(f"   Confidence: {confidence}")
+
+            # Parse and validate
+            program = interpreter.parse(proposed_strategy)
+            if not program:
+                print(f"  ❌ Proposed strategy failed to parse")
+                mutations_failed += 1
+                history.append({
+                    'iteration': iteration + 1,
+                    'parent_cell_id': parent_cell.cell_id,
+                    'proposed_strategy': proposed_strategy,
+                    'fitness': None,
+                    'survived': False,
+                    'llm_cost': iteration_cost,
+                    'status': 'parse_failed',
+                })
+                continue
+
+            # Test on multi-timeframe backtest
+            print(f"\n⚙️  Running multi-timeframe backtest...")
+
+            fitness, phenotypes, backtest_log = benchmark.run_multi_timeframe_backtest(
+                program, multi_tf_data, 'PURR'
+            )
+
+            print(f"{backtest_log}")
+
+            # Check if strategy survived
+            survived = any(p.total_profit > -100.0 for p in phenotypes.values())
+
+            # Determine if we should birth the cell
+            is_improvement = fitness > parent_cell.fitness
+
+            if is_improvement:
+                print(f"\n✓ IMPROVEMENT! ${parent_cell.fitness:.2f} → ${fitness:.2f}")
+
+                # Birth child cell
+                child_cell_id = repo.birth_cell(
+                    generation=parent_cell.generation + 1,
+                    parent_cell_id=parent_cell.cell_id,
+                    dsl_genome=proposed_strategy,
+                    fitness=fitness,
+                    status='online',
+                )
+                cells_birthed += 1
+
+                # Store phenotypes
+                for tf, phenotype in phenotypes.items():
+                    phenotype.cell_id = child_cell_id
+                    repo.store_phenotype(phenotype)
+
+                # Store mutation proposal in database
+                repo.store_mutation_proposal(
+                    cell_id=child_cell_id,
+                    proposed_genome=proposed_strategy,
+                    rationale=rationale,
+                    confidence=confidence,
+                    expected_improvement=proposal.get('expected_improvement', ''),
+                    actual_fitness_change=fitness - parent_cell.fitness,
+                )
+
+                print(f"🧬 Cell #{child_cell_id} birthed (Gen {parent_cell.generation + 1}, LLM-guided)")
+
+                # Track best
+                if fitness > best_fitness:
+                    best_fitness = fitness
+                    best_strategy = proposed_strategy
+                    best_cell_id = child_cell_id
+                    print(f"🏆 NEW BEST! Fitness: ${best_fitness:.2f}")
+
+                history.append({
+                    'iteration': iteration + 1,
+                    'parent_cell_id': parent_cell.cell_id,
+                    'child_cell_id': child_cell_id,
+                    'proposed_strategy': proposed_strategy,
+                    'fitness': fitness,
+                    'improvement': fitness - parent_cell.fitness,
+                    'survived': True,
+                    'llm_cost': iteration_cost,
+                    'status': 'success',
+                })
+
+            else:
+                print(f"\n→ No improvement. ${fitness:.2f} <= ${parent_cell.fitness:.2f}")
+
+                # Record failed mutation
+                failure_reason = 'lower_than_parent' if survived else 'negative_fitness'
+                repo.record_failed_mutation(
+                    parent_cell_id=parent_cell.cell_id,
+                    attempted_genome=proposed_strategy,
+                    generation=parent_cell.generation + 1,
+                    failure_reason=failure_reason,
+                    fitness_achieved=fitness,
+                )
+                mutations_failed += 1
+
+                print(f"💀 Mutation did not improve - recorded statistics")
+
+                history.append({
+                    'iteration': iteration + 1,
+                    'parent_cell_id': parent_cell.cell_id,
+                    'proposed_strategy': proposed_strategy,
+                    'fitness': fitness,
+                    'survived': False,
+                    'llm_cost': iteration_cost,
+                    'status': 'no_improvement',
+                })
+
+            print(f"\n💰 Cost so far: ${total_cost:.4f}" + (f" / ${cost_threshold:.4f}" if cost_threshold else ""))
+
+        # Complete evolution run in database
+        if best_cell_id:
+            repo.complete_evolution_run(
+                run_id=run_id,
+                best_cell_id=best_cell_id,
+                total_cells_birthed=cells_birthed,
+                total_mutations_failed=mutations_failed,
+                final_best_fitness=best_fitness,
+                termination_reason="iterations_complete",
+                generations_without_improvement=0,
+            )
+            print(f"\n✅ LLM-guided run #{run_id} completed and saved to database")
+
         # Final summary
-        print(f"\n\n{'='*70}")
-        print("LEARNING SESSION COMPLETE")
+        print(f"\n{'='*70}")
+        print(f"LLM-GUIDED EVOLUTION COMPLETE")
         print(f"{'='*70}")
-        
-        # Get final state
-        final_state = benchmark.get_state()
-        
-        print(f"\n💰 FINAL FINANCIAL STATE:")
-        print(f"   Starting Balance: ${final_state['initial_capital']:.2f}")
-        print(f"   Final Balance: ${final_state['balance']:.2f}")
-        print(f"   Net Result: ${final_state['net_result']:.2f}")
-        print(f"   Total Trading Profit: ${final_state['total_trading_profit']:.2f}")
-        print(f"   Total LLM Costs: ${final_state['total_llm_costs']:.4f}")
-        print(f"   Total Attempts: {final_state['attempts']}")
-        
-        if final_state['balance'] > final_state['initial_capital']:
-            print(f"\n✅ AGENT IS PROFITABLE! Grew balance by ${final_state['net_result']:.2f}")
-        elif final_state['balance'] > 0:
-            print(f"\n⚠️  AGENT SURVIVED but lost ${-final_state['net_result']:.2f}")
-        else:
-            print(f"\n❌ AGENT WENT BANKRUPT! Lost all capital.")
-        
-        print(f"\n📊 PERFORMANCE METRICS:")
-        survivors = [h for h in history if h['survived']]
-        print(f"   Success Rate: {len(survivors)}/{len(history)} ({100*len(survivors)/len(history) if history else 0:.1f}%)")
-        
-        if survivors:
-            avg_survivor_fitness = sum(h['fitness'] for h in survivors) / len(survivors)
-            print(f"   Average Fitness (survivors): ${avg_survivor_fitness:.2f}")
-        
+
+        print(f"\n📊 STATISTICS:")
+        print(f"   Total Iterations: {len(history)}")
+        print(f"   Cells Birthed: {cells_birthed}")
+        print(f"   Mutations Failed: {mutations_failed}")
+        print(f"   Success Rate: {cells_birthed}/{cells_birthed + mutations_failed} ({100*cells_birthed/(cells_birthed + mutations_failed) if (cells_birthed + mutations_failed) > 0 else 0:.1f}%)")
+        print(f"   Total LLM Cost: ${total_cost:.4f}")
+        print(f"   Average Cost per Iteration: ${total_cost/len(history) if history else 0:.4f}")
+
         if best_strategy:
-            print(f"\n🏆 BEST STRATEGY:")
-            print(f"   {best_strategy}")
+            print(f"\n🏆 BEST STRATEGY DISCOVERED:")
+            print(f"   Cell ID: #{best_cell_id}")
             print(f"   Fitness: ${best_fitness:.2f}")
+            print(f"   Strategy: {best_strategy}")
+
+            # Display lineage
+            if best_cell_id:
+                print(f"\n🧬 LINEAGE OF BEST CELL:")
+                lineage = repo.get_lineage(best_cell_id)
+                for i, cell in enumerate(lineage):
+                    indent = "  " * i
+                    arrow = "└─" if i > 0 else "──"
+                    print(f"{indent}{arrow} Cell #{cell.cell_id} (Gen {cell.generation}): ${cell.fitness:.2f}")
+                    if i < len(lineage) - 1:
+                        print(f"{indent}   ↓")
         else:
-            print(f"\n❌ No surviving strategies found")
-        
+            print(f"\n❌ No improvements found")
+
         # Show progression
-        print(f"\n📈 FITNESS PROGRESSION:")
-        for h in history:
+        print(f"\n📈 ITERATION PROGRESSION:")
+        for h in history[-10:]:  # Show last 10
             status = "✓" if h['survived'] else "✗"
-            print(f"   Iteration {h['iteration']}: {status} ${h['fitness']:.2f} - {h['strategy'][:50]}")
-        
-        print(f"\n✓ All logs saved to: {logdir if logdir else workdir}")
+            improvement = f" (+${h.get('improvement', 0):.2f})" if h.get('improvement') else ""
+            cell_info = f" → Cell #{h.get('child_cell_id')}" if h.get('child_cell_id') else ""
+            fitness_val = h.get('fitness')
+            fitness_str = f"${fitness_val:8.2f}" if fitness_val is not None else "     N/A"
+            print(f"   Iter {h['iteration']:2d}: {status} {fitness_str}{improvement}{cell_info}")
+
+        print(f"\n✓ Results saved to database: {db_path}")
+        print(f"\n💡 Pattern taxonomy and mutation proposals stored for future analysis")
 
     except Exception as e:
         print(f"\n❌ Error: {e}")
         import traceback
         traceback.print_exc()
-
 
 async def run_trading_evolve(
     generations: int,
@@ -831,7 +973,7 @@ async def run_trading_evolve(
     Termination conditions:
     - Reaches fitness_goal (early success)
     - Completes all generations
-    - No improvement for 20 consecutive generations (stagnation)
+    - No improvement for 100 consecutive generations (stagnation)
     """
     print("\n" + "="*70)
     print("TRADING STRATEGY EVOLUTION MODE (Cell-Based)")
@@ -1132,9 +1274,9 @@ async def run_trading_evolve(
                 'cell_id': current_cell_id if selection == "CHILD WINS" else None,
             })
 
-            # Check for stagnation (no improvement for 20 generations)
-            if generations_without_improvement >= 20:
-                print(f"\n⚠️  STAGNATION DETECTED: No improvement for 20 generations")
+            # Check for stagnation (no improvement for 100 generations)
+            if generations_without_improvement >= 100:
+                print(f"\n⚠️  STAGNATION DETECTED: No improvement for 100 generations")
                 print(f"Terminating early at generation {gen}")
                 termination_reason = "stagnation"
                 break

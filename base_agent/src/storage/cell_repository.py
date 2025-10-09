@@ -907,3 +907,62 @@ class CellRepository:
                 ORDER BY c.fitness DESC
             """, (pattern_id,))
             return [self._row_to_cell(row) for row in cursor.fetchall()]
+
+    def get_cell_count(self) -> int:
+        """Get total number of cells in database."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) as count FROM cells")
+            return cursor.fetchone()['count']
+
+    def store_mutation_proposal(
+        self,
+        cell_id: int,
+        proposed_genome: str,
+        rationale: str,
+        confidence: str,
+        expected_improvement: str,
+        actual_fitness_change: float,
+    ) -> int:
+        """Store LLM mutation proposal."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO cell_mutation_proposals (
+                    cell_id, proposed_genome, mutation_rationale, status, tested_at, result_cell_id
+                ) VALUES (?, ?, ?, 'tested', CURRENT_TIMESTAMP, ?)
+            """, (cell_id, proposed_genome, f"{rationale} | confidence:{confidence} | expected:{expected_improvement} | actual_change:${actual_fitness_change:.2f}", cell_id))
+            return cursor.lastrowid
+
+    def get_mutation_proposals_for_cell(self, cell_id: int, status: Optional[str] = None) -> List[dict]:
+        """
+        Get mutation proposals for a cell.
+
+        Args:
+            cell_id: ID of the cell
+            status: Optional status filter ('pending', 'tested', 'abandoned')
+
+        Returns:
+            List of mutation proposal dicts with keys:
+            - proposal_id, cell_id, proposed_genome, mutation_rationale,
+              priority, status, proposed_at, tested_at, result_cell_id
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            if status:
+                cursor.execute("""
+                    SELECT * FROM cell_mutation_proposals
+                    WHERE cell_id = ? AND status = ?
+                    ORDER BY proposed_at DESC
+                """, (cell_id, status))
+            else:
+                cursor.execute("""
+                    SELECT * FROM cell_mutation_proposals
+                    WHERE cell_id = ?
+                    ORDER BY proposed_at DESC
+                """, (cell_id,))
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_phenotypes_for_cell(self, cell_id: int) -> List[CellPhenotype]:
+        """Alias for get_phenotypes (for consistency with new code)."""
+        return self.get_phenotypes(cell_id)

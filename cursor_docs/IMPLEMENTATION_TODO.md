@@ -78,43 +78,68 @@ This document outlines all tasks needed to implement the cell-based architecture
 
 ## Phase 3: LLM Integration (Trading-Learn Mode)
 
-### 3.1 LLM Analysis Pipeline
+**Design Philosophy**:
+- `trading-evolve`: 100% random mutations (FREE, builds genetic library)
+- `trading-learn`: 100% LLM-guided mutations (SMART, exploits patterns)
+- Clear separation: cheap exploration → intelligent exploitation
+
+### 3.1 LLM Analysis Pipeline with Batch Processing
 - [ ] Create `base_agent/src/analysis/__init__.py`
 - [ ] Create `base_agent/src/analysis/cell_analyzer.py`
-  - [ ] Implement `prepare_cell_context(cell_id)` function
-  - [ ] Implement `analyze_cell_with_llm(context)` async function
-  - [ ] Create LLM prompt template for analysis
-  - [ ] Parse JSON response from LLM
-  - [ ] Handle errors gracefully
+  - [ ] Implement `prepare_cell_context(cell_id, repo)` - fetch cell + lineage + phenotypes
+  - [ ] Implement `analyze_cells_in_batches(repo, cell_ids, batch_size=30)` - batch processing for 8K context
+  - [ ] Implement `merge_pattern_discoveries(batch_results)` - deduplicate patterns across batches
+  - [ ] Create LLM prompt template for batch cell analysis
+  - [ ] Parse JSON response from LLM (pattern taxonomy)
+  - [ ] Handle errors gracefully (skip failed batches, continue)
 
 **Priority**: P1
-**Estimated time**: 2 days
+**Estimated time**: 2-3 days
 **Files**: `base_agent/src/analysis/cell_analyzer.py`
+**Notes**: Batch size of 30 cells fits Gemma 3 27B's 8K context window
 
-### 3.2 Integrate Analysis into Trading-Learn
-- [ ] Update `run_trading_learn()` in `agent.py`
-  - [ ] After cell birth, call `analyze_cell_if_needed()`
-  - [ ] Store LLM analysis in database
-  - [ ] Create/link patterns
-  - [ ] Store mutation proposals
-  - [ ] Track LLM costs in budget
+### 3.2 Intelligent Mutation Proposals
+- [ ] Create `base_agent/src/analysis/mutation_proposer.py`
+  - [ ] Implement `propose_intelligent_mutation(cell, patterns, repo)` - LLM suggests smart mutations
+  - [ ] Create LLM prompt template for mutation proposals
+  - [ ] Parse mutation proposal JSON (strategy, rationale, expected_improvement)
+  - [ ] Validate proposed mutations (parseable DSL, different from parent)
+
+**Priority**: P1
+**Estimated time**: 1-2 days
+**Files**: `base_agent/src/analysis/mutation_proposer.py`
+
+### 3.3 Rewrite Trading-Learn Mode (100% LLM-Guided)
+- [ ] **Completely rewrite** `run_trading_learn()` in `agent.py`
+  - [ ] Load cell database from prior `trading-evolve` run
+  - [ ] Analyze top 100 cells in batches (30 cells per batch)
+  - [ ] Build pattern taxonomy from batch analysis
+  - [ ] For each iteration:
+    - [ ] Select best cell (or tournament selection)
+    - [ ] LLM proposes intelligent mutation based on patterns
+    - [ ] Parse and validate proposed strategy
+    - [ ] Test on multi-timeframe backtest
+    - [ ] Birth cell if fitness improves
+    - [ ] Update pattern taxonomy with new insights
+  - [ ] Track LLM costs and display budget usage
+  - [ ] Store all analysis in database (patterns, cell_patterns, mutation proposals)
+
+**Priority**: P1 (CRITICAL)
+**Estimated time**: 2-3 days
+**Files**: `base_agent/agent.py`
+**Breaking Change**: Old `trading-learn` used MainOrchestratorAgent (generate from scratch). New version uses cell database + intelligent mutation.
+
+### 3.4 Database Integration
+- [ ] Verify `cell_mutation_proposals` table exists in schema
+- [ ] Implement `store_mutation_proposal()` in CellRepository
+- [ ] Implement `get_mutation_proposals_for_cell()` in CellRepository
+- [ ] Implement `store_pattern()` in CellRepository
+- [ ] Implement `link_cell_to_pattern()` in CellRepository
 
 **Priority**: P1
 **Estimated time**: 1 day
-**Files**: `base_agent/agent.py`
-
-### 3.3 Guided Mutation Support
-- [ ] Add mutation proposal storage
-  - [ ] Add `cell_mutation_proposals` table to schema
-  - [ ] Implement `store_mutation_proposals()` in repository
-  - [ ] Implement `get_llm_proposed_mutations()` in repository
-- [ ] Update mutation logic
-  - [ ] 80% random mutations (existing)
-  - [ ] 20% LLM-guided mutations (new)
-
-**Priority**: P2
-**Estimated time**: 1-2 days
-**Files**: `base_agent/src/storage/cell_repository.py`, `base_agent/agent.py`
+**Files**: `base_agent/src/storage/cell_repository.py`
+**Note**: Most methods already exist from Sprint 1, just verify completeness
 
 ## Phase 4: DSL V2 Implementation
 
@@ -298,11 +323,12 @@ This document outlines all tasks needed to implement the cell-based architecture
 **Goal**: Evolution mode works with cell storage and arithmetic DSL
 
 ### Sprint 3 (Week 3): LLM Integration
-1. LLM analysis pipeline (3.1)
-2. Integrate analysis into trading-learn (3.2)
-3. Guided mutation support (3.3)
+1. LLM analysis pipeline with batch processing (3.1)
+2. Intelligent mutation proposals (3.2)
+3. Rewrite trading-learn mode for 100% LLM-guided evolution (3.3)
+4. Database integration for patterns and proposals (3.4)
 
-**Goal**: Trading-learn mode works with pattern discovery
+**Goal**: Trading-learn mode analyzes cell library and uses 100% LLM-guided mutations
 
 ### Sprint 4 (Week 4): DSL Enhancement
 1. DSL V2 Phase 2: Aggregations (4.2)
