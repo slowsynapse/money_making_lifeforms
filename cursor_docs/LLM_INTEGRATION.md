@@ -1,17 +1,17 @@
-# LLM Integration: Pattern Discovery and Semantic Analysis
+# LLM Integration: The Intelligence Engine
 
 ## Overview
 
-The LLM's role is **not** to design strategies, but to:
-1. **Analyze survivors** - Interpret what successful cells are doing
-2. **Name patterns** - Create human-readable labels (like humans created "MACD", "RSI")
-3. **Build taxonomy** - Organize discovered patterns into categories
-4. **Propose mutations** - Suggest intelligent variations based on understanding
-5. **Generate hypotheses** - Explain why patterns might work
+The LLM's role is to act as the **Intelligence Engine** in a symbiotic loop with the Evolutionary Engine. It is responsible for:
+1. **Analyzing survivors** - Interpreting what successful cells are doing.
+2. **Hypothesizing meaning** - Deducing what abstract symbols like `ALPHA` and `BETA` might represent in the market.
+3. **Naming patterns** - Creating human-readable labels for successful strategies.
+4. **Proposing intelligent mutations** - Suggesting targeted variations based on a deep understanding of the cell's logic.
+5. **Building a knowledge taxonomy** - Organizing discovered patterns into a library of market heuristics.
 
-**Key Principle**: Evolution discovers structure through blind mutation. LLM interprets meaning after the fact.
+**Key Principle**: The system uses a dual-engine approach. The Evolutionary Engine provides broad, fast, and cheap discovery, while the Intelligence Engine provides deep, focused, and creative analysis.
 
-## The Two-System Collaboration
+## The Dual-Engine Collaboration
 
 ```
 ┌────────────────────────────────────┐
@@ -21,16 +21,17 @@ The LLM's role is **not** to design strategies, but to:
 │  - Fast, parallel, no LLM cost     │
 └───────────┬────────────────────────┘
             │
-            │ Top 10 survivors
+            │ Top survivors are flagged for analysis
             ▼
 ┌────────────────────────────────────┐
 │    LLM (Selective, Expensive)      │
 │  - Analyzes specific cells by ID   │
+│  - Hypothesizes symbol meaning     │
 │  - Names patterns                  │
 │  - Proposes intelligent mutations  │
 └───────────┬────────────────────────┘
             │
-            │ Named patterns + mutation suggestions
+            │ Named patterns + mutation suggestions are stored
             ▼
 ┌────────────────────────────────────┐
 │   EVOLUTION (Guided + Random)      │
@@ -167,9 +168,11 @@ Here are 5 examples of when this strategy triggered BUY:
 
 ## Your Task
 
-1. **Name this pattern**: Give it a short, descriptive name (like humans created "MACD", "RSI", "Head and Shoulders")
+1. **Infer Symbol Meanings**: Based on the genome and trigger examples, what do the abstract symbols (`ALPHA`, `BETA`, etc.) likely represent? For example, if `ALPHA(0) > ALPHA(10)` triggers buys during price rallies, you can hypothesize that `ALPHA` represents price.
 
-2. **Categorize it**: What type of pattern is this?
+2. **Name this pattern**: Give it a short, descriptive name (like humans created "MACD", "RSI", "Head and Shoulders"). The name should reflect your inferred meaning of the symbols.
+
+3. **Categorize it**: What type of pattern is this?
    - Volume Analysis
    - Mean Reversion
    - Trend Following
@@ -178,16 +181,20 @@ Here are 5 examples of when this strategy triggered BUY:
    - Whale Detection
    - Other: [specify]
 
-3. **Explain what it detects**: In plain English, what market condition does this strategy identify? Why might it be profitable?
+4. **Explain what it detects**: In plain English, what market condition does this strategy identify? Why might it be profitable?
 
-4. **Hypothesis**: Why do you think this pattern works? What market inefficiency or behavior does it exploit?
+5. **Hypothesis**: Why do you think this pattern works? What market inefficiency or behavior does it exploit?
 
-5. **Confidence**: How confident are you in this analysis? (0.0 - 1.0)
+6. **Confidence**: How confident are you in this analysis? (0.0 - 1.0)
 
-6. **Suggest mutations**: Propose 3 intelligent variations of this strategy that might improve it further.
+7. **Suggest mutations**: Propose 3 intelligent variations of this strategy that might improve it further.
 
 Respond in JSON format:
 {{
+  "inferred_symbol_meanings": {{
+     "ALPHA": "Represents the closing price (DELTA)",
+     "BETA": "Could be a moving average of volume over a short period"
+  }},
   "name": "Volume Spike Reversal",
   "category": "Volume Analysis",
   "explanation": "...",
@@ -461,28 +468,32 @@ Gen  34: Best=$  18.67, Avg=$  14.22, Count=5
 Gen  89: Best=$  25.67, Avg=$  19.88, Count=12
 ```
 
-## Real-Time Analysis in trading-learn Mode
+## Real-Time Analysis in `learn` Mode
 
 ### Interactive LLM Analysis
 
 ```bash
-# Run trading-learn with LLM analysis
-docker run --rm -p 8080:8080 \
-  -v ${PWD}/base_agent:/home/agent/agent_code:ro \
-  -v ${PWD}/benchmark_data:/home/agent/benchmark_data:ro \
-  -v ${PWD}/results/interactive_output:/home/agent/workdir:rw \
-  --env-file .env \
+# Run in learn mode to trigger LLM analysis on successful cells
+docker run --rm --network host \
+  -v $(pwd):/app \
+  -e ANTHROPIC_API_KEY="your-api-key-here" \
   sica_sandbox \
-  python -m agent_code.agent trading-learn --iterations 5 --server
+  ./trading_cli.py learn --iterations 10 --cost-limit 1.0
+
+# For local LLM (free):
+docker run --rm --network host \
+  -v $(pwd):/app \
+  sica_sandbox \
+  ./trading_cli.py learn --iterations 10 --cost-limit 1.0 --use-local-llm
 ```
 
 **What happens**:
-1. Agent generates strategy
-2. Backtest determines fitness
-3. If fitness > 0, **LLM immediately analyzes**
-4. Cell is birthed with semantic metadata
-5. Pattern taxonomy is updated
-6. Next iteration uses both random + guided mutations
+1. Agent selects a promising parent cell from the database.
+2. **LLM immediately analyzes the parent cell.**
+3. LLM proposes intelligent mutations based on its analysis.
+4. One of the proposed mutations is chosen to create a child cell.
+5. The child cell is backtested to determine its fitness.
+6. The pattern taxonomy is updated based on the analysis.
 
 ## Costs and Budgeting
 
@@ -529,18 +540,16 @@ def should_analyze_cell(cell_id: int, budget_remaining: float) -> bool:
 ## Summary
 
 The LLM's role:
-- **Interprets** successful strategies (doesn't design them)
+- **Interprets** successful strategies (doesn't design them from scratch)
+- **Infers** the meaning of abstract symbols
 - **Names** patterns (like humans named "MACD")
-- **Builds** taxonomy of discovered patterns
-- **Proposes** intelligent mutations
-- **Explains** why patterns might work
+- **Proposes** intelligent mutations to guide evolution
+- **Builds** a taxonomy of discovered patterns
 
 Key principles:
-- **Selective** analysis (only survivors)
-- **After-the-fact** interpretation (evolution finds, LLM names)
+- **Dual-Engine** collaboration between evolution and intelligence.
+- **Selective** analysis (only promising survivors)
 - **Cost-aware** (budget for analysis)
 - **Incremental** knowledge building (taxonomy grows over time)
 
-**The LLM doesn't tell evolution what to do. It interprets what evolution discovered and gives it human-readable names.**
-
-Next: See `DSL_V2_SPEC.md` for how extending the DSL with arithmetic and aggregations will enable richer patterns for the LLM to discover and name.
+The LLM and the Evolutionary Engine work in a symbiotic feedback loop. Evolution provides the raw material of survival, and the LLM provides the focused intelligence to understand and refine it.

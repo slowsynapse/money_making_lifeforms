@@ -1,115 +1,78 @@
 # Docker Commands for Trading Evolution System
 
-This document provides the essential Docker commands for running the trading evolution system. All commands run inside Docker containers to avoid dependency issues with the host system.
+This document provides the essential Docker commands for running the trading evolution system. All commands should be run from the root of the project directory.
+
+**Primary Entry Point**: The system should be controlled via `./trading_cli.py`. This script is a wrapper that provides a clean interface to the underlying agent logic.
 
 ## Prerequisites
 
 - Docker must be installed and running
-- The `sica_sandbox` Docker image must be built
-- Ollama must be running on host (for local LLM mode): `http://localhost:11434`
+- The `sica_sandbox` Docker image must be built (`make image`)
+- For local LLM mode, Ollama must be running on the host: `http://localhost:11434`
 
 ## Trading Evolution Commands
 
 ### 1. Trading-Evolve (Pure Mutation, FREE)
 
-Evolves trading strategies through random DSL mutations. No LLM costs after generation 0.
+Evolves trading strategies through random DSL mutations. No LLM costs.
 
 **Basic command:**
 ```bash
 docker run --rm \
-  -v $(pwd)/base_agent:/home/agent/agent_code \
-  -v $(pwd)/benchmark_data:/home/agent/benchmark_data \
-  -v $(pwd)/results/interactive_output:/home/agent/workdir \
+  -v $(pwd):/app \
   sica_sandbox \
-  python -m agent_code.agent trading-evolve -g 100 -f 50.0
+  ./trading_cli.py evolve --generations 100 --fitness-goal 50.0
 ```
 
-**Parameters:**
-- `-g, --generations`: Number of generations to evolve (default: 10)
-- `-f, --fitness-goal`: Target fitness for early termination (default: 200.0)
-- `--initial-strategy`: Starting DSL strategy (optional, generates random if not provided)
+**Parameters (See `./trading_cli.py evolve --help` for full list):**
+- `-g, --generations`: Number of generations to evolve
+- `-f, --fitness-goal`: Target fitness for early termination
+- `--output-dir`: Directory to save results
 
 **Example with custom parameters:**
 ```bash
 docker run --rm \
-  -v $(pwd)/base_agent:/home/agent/agent_code \
-  -v $(pwd)/benchmark_data:/home/agent/benchmark_data \
-  -v $(pwd)/results/interactive_output:/home/agent/workdir \
+  -v $(pwd):/app \
   sica_sandbox \
-  python -m agent_code.agent trading-evolve \
-    -g 200 \
-    -f 100.0 \
-    --initial-strategy "IF DELTA(0) > DELTA(20) THEN BUY ELSE SELL"
+  ./trading_cli.py evolve --generations 200 --fitness-goal 100.0 --symbol BTCUSD
 ```
 
-**With web visualization:**
-```bash
-mkdir -p results/evolution_viz
-docker run --rm -p 8080:8080 \
-  -v $(pwd)/base_agent:/home/agent/agent_code \
-  -v $(pwd)/benchmark_data:/home/agent/benchmark_data \
-  -v $(pwd)/results/evolution_viz:/home/agent/workdir \
-  sica_sandbox \
-  python -m agent_code.agent trading-evolve -g 100 -f 50.0 --server
-```
-Then open http://localhost:8080 in your browser to see real-time evolution visualization.
+**Note on Web Visualization**: The web server is currently being refactored. Use the CLI for monitoring evolution.
 
 **Background mode (long runs):**
 ```bash
 docker run --rm \
-  -v $(pwd)/base_agent:/home/agent/agent_code \
-  -v $(pwd)/benchmark_data:/home/agent/benchmark_data \
-  -v $(pwd)/results/interactive_output:/home/agent/workdir \
+  -v $(pwd):/app \
   sica_sandbox \
-  python -m agent_code.agent trading-evolve -g 100 -f 50.0 \
-  > evolution_log.txt 2>&1 &
+  ./trading_cli.py evolve --generations 1000 --fitness-goal 500.0 \
+  > evolution_run_1.log 2>&1 &
 ```
 
 ### 2. Trading-Learn (LLM-Guided, Intelligent Mutations)
 
-Uses LLM to analyze cells and propose intelligent mutations. Requires a cell database from prior `trading-evolve` run.
+Uses an LLM to analyze cells and propose intelligent mutations. Requires a cell database from a prior `evolve` run.
 
 **With Anthropic Claude (cloud LLM):**
 ```bash
 docker run --rm \
-  -v $(pwd)/base_agent:/home/agent/agent_code \
-  -v $(pwd)/benchmark_data:/home/agent/benchmark_data \
-  -v $(pwd)/results/interactive_output:/home/agent/workdir \
+  -v $(pwd):/app \
   -e ANTHROPIC_API_KEY="your-api-key-here" \
   sica_sandbox \
-  python -m agent_code.agent trading-learn --iterations 10 --cost-threshold 1.0
+  ./trading_cli.py learn --iterations 10 --cost-limit 1.0
 ```
 
 **With Local LLM (Ollama - FREE):**
 ```bash
 docker run --rm --network host \
-  -v $(pwd)/base_agent:/home/agent/agent_code \
-  -v $(pwd)/benchmark_data:/home/agent/benchmark_data \
-  -v $(pwd)/results/interactive_output:/home/agent/workdir \
-  -e USE_LOCAL_LLM=true \
-  -e OLLAMA_HOST=http://localhost:11434 \
+  -v $(pwd):/app \
   sica_sandbox \
-  python -m agent_code.agent trading-learn --iterations 10 --cost-threshold 1.0
+  ./trading_cli.py learn --iterations 10 --cost-limit 1.0 --use-local-llm
 ```
 
-**Parameters:**
-- `--iterations`: Number of LLM-guided mutation iterations (default: 5)
-- `--cost-threshold`: Maximum LLM cost in USD (default: None)
-- `--server`: Enable web visualization server on port 8080
-
-**Example with web server:**
-```bash
-mkdir -p results/learn_with_viz
-docker run --rm --network host \
-  -v $(pwd)/base_agent:/home/agent/agent_code \
-  -v $(pwd)/benchmark_data:/home/agent/benchmark_data \
-  -v $(pwd)/results/learn_with_viz:/home/agent/workdir \
-  -e USE_LOCAL_LLM=true \
-  -e OLLAMA_HOST=http://localhost:11434 \
-  sica_sandbox \
-  python -m agent_code.agent trading-learn --iterations 20 --cost-threshold 5.0 --server
-```
-Then open http://localhost:8080 in your browser to see real-time evolution visualization.
+**Parameters (See `./trading_cli.py learn --help` for full list):**
+- `-n, --iterations`: Number of LLM-guided mutation iterations
+- `-c, --cost-limit`: Maximum LLM cost in USD
+- `--use-local-llm`: Flag to use a local Ollama instance
 
 ### 3. Trading-Test (Single Strategy Backtest)
 
@@ -117,215 +80,117 @@ Test a specific DSL strategy on historical data.
 
 ```bash
 docker run --rm \
-  -v $(pwd)/base_agent:/home/agent/agent_code \
-  -v $(pwd)/benchmark_data:/home/agent/benchmark_data \
-  -v $(pwd)/results/interactive_output:/home/agent/workdir \
+  -v $(pwd):/app \
   sica_sandbox \
-  python -m agent_code.agent trading-test \
-    --strategy "IF DELTA(0) > DELTA(20) THEN BUY ELSE SELL"
+  ./trading_cli.py test "IF DELTA(0) > DELTA(20) THEN BUY ELSE SELL"
 ```
 
 ### 4. Trading-Demo (System Overview)
 
-Shows DSL parsing, mutation, and evolutionary concept.
+Shows DSL parsing, mutation, and explains the evolutionary concept.
 
 ```bash
 docker run --rm \
-  -v $(pwd)/base_agent:/home/agent/agent_code \
-  -v $(pwd)/benchmark_data:/home/agent/benchmark_data \
-  -v $(pwd)/results/interactive_output:/home/agent/workdir \
+  -v $(pwd):/app \
   sica_sandbox \
-  python -m agent_code.agent trading-demo
+  ./trading_cli.py demo
 ```
 
 ## Database Queries
 
-Query the cell database from the host machine:
+Query the cell database from inside a container or directly on the host if `sqlite3` is installed. The most reliable method is to use the `query` command of the CLI.
 
-**View top cells:**
+**View top cells from the most recent evolution run:**
 ```bash
-sqlite3 results/interactive_output/evolution/cells.db \
-  'SELECT cell_id, generation, fitness, status FROM cells ORDER BY fitness DESC LIMIT 10;'
+docker run --rm \
+  -v $(pwd):/app \
+  sica_sandbox \
+  ./trading_cli.py query top-cells --limit 10
 ```
 
-**View lineage of best cell:**
+**View lineage of a specific cell:**
 ```bash
-sqlite3 results/interactive_output/evolution/cells.db \
-  'SELECT cell_id, generation, fitness, dsl_genome FROM cells WHERE cell_id <= 10 ORDER BY cell_id;'
-```
-
-**View evolution runs:**
-```bash
-sqlite3 results/interactive_output/evolution/cells.db \
-  'SELECT * FROM evolution_runs ORDER BY run_id DESC LIMIT 5;'
-```
-
-**Count cells by status:**
-```bash
-sqlite3 results/interactive_output/evolution/cells.db \
-  'SELECT status, COUNT(*) FROM cells GROUP BY status;'
+docker run --rm \
+  -v $(pwd):/app \
+  sica_sandbox \
+  ./trading_cli.py query lineage --cell-id 42
 ```
 
 ## Recommended Workflow
 
 ### Phase 1: Build Cell Library (FREE)
 ```bash
-# Run 100 generations of pure mutation to build genetic diversity
+# Run 100+ generations of pure mutation to build genetic diversity
 docker run --rm \
-  -v $(pwd)/base_agent:/home/agent/agent_code \
-  -v $(pwd)/benchmark_data:/home/agent/benchmark_data \
-  -v $(pwd)/results/interactive_output:/home/agent/workdir \
+  -v $(pwd):/app \
   sica_sandbox \
-  python -m agent_code.agent trading-evolve -g 100 -f 50.0
+  ./trading_cli.py evolve --generations 100 --fitness-goal 50.0
 ```
 
 ### Phase 2: LLM Pattern Discovery (Local LLM - FREE)
 ```bash
 # Analyze cells and propose intelligent mutations
 docker run --rm --network host \
-  -v $(pwd)/base_agent:/home/agent/agent_code \
-  -v $(pwd)/benchmark_data:/home/agent/benchmark_data \
-  -v $(pwd)/results/interactive_output:/home/agent/workdir \
-  -e USE_LOCAL_LLM=true \
-  -e OLLAMA_HOST=http://localhost:11434 \
+  -v $(pwd):/app \
   sica_sandbox \
-  python -m agent_code.agent trading-learn --iterations 20 --cost-threshold 1.0
+  ./trading_cli.py learn --iterations 20 --cost-limit 1.0 --use-local-llm
 ```
 
 ### Phase 3: Analyze Results
 ```bash
-# Query database for insights
-sqlite3 results/interactive_output/evolution/cells.db \
-  'SELECT cell_id, generation, fitness, dsl_genome FROM cells ORDER BY fitness DESC LIMIT 5;'
+# Query the database for insights
+docker run --rm \
+  -v $(pwd):/app \
+  sica_sandbox \
+  ./trading_cli.py query top-cells --limit 5
 ```
 
 ## Ollama Setup (for Local LLM)
 
 Install and start Ollama on the host machine:
-
 ```bash
 # Install Ollama (if not already installed)
 curl -fsSL https://ollama.com/install.sh | sh
 
-# Pull the Gemma 3 27B model (or your preferred model)
+# Pull the Gemma 2 27B model (or your preferred model)
 ollama pull gemma2:27b
 
 # Verify Ollama is running
 ollama list
-
-# Ollama automatically runs on http://localhost:11434
-# No additional configuration needed for Docker with --network host
 ```
+Ollama automatically runs on `http://localhost:11434`. The `--network host` flag in the Docker command allows the container to access it.
 
 ## Troubleshooting
 
 **Issue**: Cannot connect to Ollama from Docker
-- **Solution**: Use `--network host` flag and `OLLAMA_HOST=http://localhost:11434`
+- **Solution**: Ensure you are using the `--network host` flag in your `docker run` command.
 
 **Issue**: Permission denied on volumes
-- **Solution**: Ensure directories exist: `mkdir -p results/interactive_output benchmark_data`
+- **Solution**: Ensure your current user has permissions to write to the `results/` directory on the host. If running on Linux, you may need to manage Docker permissions or run as root.
 
-**Issue**: Cell database not found
-- **Solution**: Run `trading-evolve` first to create the database before running `trading-learn`
+**Issue**: `trading_cli.py` not found or not executable
+- **Solution**: Ensure you are running the command from the root of the project directory. If needed, make the script executable: `chmod +x trading_cli.py`.
 
-**Issue**: Out of memory
-- **Solution**: Reduce batch size in LLM analysis or use smaller LLM model
+**Issue**: Cell database not found when running `learn` or `query`
+- **Solution**: Run the `evolve` command first. It creates the `cells.db` file in its output directory (e.g., `results/evolve_.../`). The `query` command will automatically find the most recent database.
 
 ## Output Locations
 
-All outputs are stored in the mounted volumes:
-
-- **Cell Database**: `results/interactive_output/evolution/cells.db`
-- **Evolution Logs**: `results/interactive_output/evolution/gen_*/`
-- **Best Strategy**: `results/interactive_output/evolution/best_strategy.txt`
-- **Summary**: `results/interactive_output/evolution/evolution_summary.txt`
-
-## Web Visualization (Sprint 6)
-
-Both `trading-evolve` and `trading-learn` support real-time web visualization with the `--server` flag.
-
-### Features
-
-**Callgraph Tab:**
-- View execution hierarchy and timing
-- See real-time events as they occur
-- Track token usage and costs
-- Monitor LLM calls and responses
-
-**Evolution Cells Tab:**
-- Browse all evolved trading strategies
-- View fitness scores and status
-- See DSL genomes for each cell
-- Filter by generation and performance
-
-### Example: Complete Workflow with Visualization
-
-```bash
-# Step 1: Build cell library with visualization (100 generations)
-mkdir -p results/evolution_viz
-docker run --rm -p 8080:8080 \
-  -v $(pwd)/base_agent:/home/agent/agent_code \
-  -v $(pwd)/benchmark_data:/home/agent/benchmark_data \
-  -v $(pwd)/results/evolution_viz:/home/agent/workdir \
-  sica_sandbox \
-  python -m agent_code.agent trading-evolve -g 100 -f 50.0 --server
-
-# Open http://localhost:8080 in your browser
-# Watch evolution in real-time on the Callgraph tab
-# Browse evolved strategies on the Evolution Cells tab
-
-# Step 2: LLM-guided learning with visualization
-docker run --rm --network host \
-  -v $(pwd)/base_agent:/home/agent/agent_code \
-  -v $(pwd)/benchmark_data:/home/agent/benchmark_data \
-  -v $(pwd)/results/evolution_viz:/home/agent/workdir \
-  -e USE_LOCAL_LLM=true \
-  -e OLLAMA_HOST=http://localhost:11434 \
-  sica_sandbox \
-  python -m agent_code.agent trading-learn --iterations 10 --cost-threshold 1.0 --server
-
-# Watch pattern discovery and intelligent mutations in real-time
-# See LLM-proposed strategies on the Callgraph tab
-# Monitor all cells (both evolved and LLM-guided) on the Evolution Cells tab
-```
-
-**Note:** Use `--network host` for trading-learn with Ollama (no `-p 8080:8080` needed).
+All outputs are stored in the mounted volume, typically inside the `results/` directory on your host machine:
+- **Evolution Runs**: `results/evolve_<timestamp>/`
+- **Learn Runs**: `results/learn_<timestamp>/`
+- **Cell Database**: `results/evolve_<timestamp>/evolution/cells.db`
+- **Best Strategy**: `results/evolve_<timestamp>/evolution/best_strategy.txt`
+- **Summary**: `results/evolve_<timestamp>/evolution/evolution_summary.txt`
 
 ## Performance Tips
 
-1. **Use local LLM (Ollama)** for cost-free experimentation
-2. **Run trading-evolve first** to build a cell library (100+ generations recommended)
-3. **Use web visualization** to monitor progress in real-time without interrupting evolution
-4. **Use background mode** for long runs without visualization (append `&` and redirect output)
-5. **Query database** to inspect historical results and patterns
-6. **Set fitness goal** to terminate early when target is reached
-
-## Example: Complete End-to-End Test
-
-```bash
-# Step 1: Build cell library (100 generations, ~10-15 minutes)
-docker run --rm \
-  -v $(pwd)/base_agent:/home/agent/agent_code \
-  -v $(pwd)/benchmark_data:/home/agent/benchmark_data \
-  -v $(pwd)/results/interactive_output:/home/agent/workdir \
-  sica_sandbox \
-  python -m agent_code.agent trading-evolve -g 100 -f 50.0
-
-# Step 2: LLM-guided learning (10 iterations with local LLM)
-docker run --rm --network host \
-  -v $(pwd)/base_agent:/home/agent/agent_code \
-  -v $(pwd)/benchmark_data:/home/agent/benchmark_data \
-  -v $(pwd)/results/interactive_output:/home/agent/workdir \
-  -e USE_LOCAL_LLM=true \
-  -e OLLAMA_HOST=http://localhost:11434 \
-  sica_sandbox \
-  python -m agent_code.agent trading-learn --iterations 10 --cost-threshold 1.0
-
-# Step 3: Review results
-sqlite3 results/interactive_output/evolution/cells.db \
-  'SELECT cell_id, generation, fitness, status FROM cells ORDER BY fitness DESC LIMIT 10;'
-```
+1. **Use local LLM (Ollama)** for cost-free experimentation.
+2. **Run `evolve` first** to build a substantial cell library (100+ generations recommended).
+3. **Use background mode** for long `evolve` runs by appending `&` and redirecting output.
+4. **Use the `query` command** to inspect results without needing to manually find the database file.
+5. **Set a `fitness-goal`** to terminate evolution early if a highly profitable strategy is found.
 
 ---
 
-**Note**: All Python commands must run inside the Docker container. Do not run Python directly on the host if your system Python is broken.
+**Note**: The old method of calling `python -m base_agent.agent ...` is deprecated. Please use `./trading_cli.py` for all interactions.

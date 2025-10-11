@@ -170,35 +170,37 @@ def generate_random_mutation(parent: Cell) -> str:
 #### LLM-Guided Mutation (Trading-Learn Mode)
 
 ```python
-def generate_guided_mutation(parent: Cell, repo: CellRepository) -> str | None:
+def generate_guided_mutation(parent: Cell, repo: CellRepository) -> tuple[str, int] | None:
     """Get LLM-suggested mutation if available."""
 
-    # Check if this cell has LLM-proposed mutations
-    suggestions = repo.get_llm_proposed_mutations(parent.cell_id)
+    # Check if this cell has LLM-proposed mutations (as dicts with id and genome)
+    suggestions = repo.get_llm_proposed_mutations(parent.cell_id, status='pending')
 
     if not suggestions:
         return None
 
     # Pick random suggestion
-    return random.choice(suggestions)
+    suggestion = random.choice(suggestions)
+    return suggestion['proposed_genome'], suggestion['proposal_id']
 ```
 
 #### Hybrid Strategy
 
 ```python
-def generate_mutation(parent: Cell, repo: CellRepository, mode: str) -> str:
+def generate_mutation(parent: Cell, repo: CellRepository, mode: str) -> tuple[str, int | None]:
     """Generate mutation using hybrid strategy."""
 
     if mode == 'trading-learn' and random.random() < 0.2:
         # 20% chance: Try LLM-guided mutation
-        guided = generate_guided_mutation(parent, repo)
-        if guided:
-            print(f"Using LLM-guided mutation")
-            return guided
+        guided_result = generate_guided_mutation(parent, repo)
+        if guided_result:
+            genome, proposal_id = guided_result
+            print(f"Using LLM-guided mutation (Proposal #{proposal_id})")
+            return genome, proposal_id
 
     # Fall back to random mutation
     print(f"Using random mutation")
-    return generate_random_mutation(parent)
+    return generate_random_mutation(parent), None
 ```
 
 ### Phase 3: Multi-Timeframe Backtesting
@@ -352,6 +354,30 @@ async def analyze_cell_if_needed(
     return analysis
 ```
 
+### Phase 5.5: Closing the Loop on LLM Guidance (Meta-Learning)
+
+A critical, but subtle, part of the workflow is tracking the performance of the LLM's own suggestions. This creates a meta-learning loop where the system can learn which kinds of guidance are actually effective.
+
+This is achieved by linking the newly birthed cell back to the specific mutation proposal that generated it. The `cell_mutation_proposals` table has a `result_cell_id` column for this purpose. When a cell is born from a guided mutation, we update this record.
+
+```python
+def link_proposal_to_result(
+    repo: CellRepository,
+    proposal_id: int,
+    child_cell_id: int
+):
+    """Update a mutation proposal with the ID of the cell it created."""
+    repo.update_mutation_proposal_result(proposal_id, child_cell_id)
+    print(f"✓ Linked LLM proposal #{proposal_id} to successful child Cell #{child_cell_id}")
+```
+
+This allows for powerful future analysis:
+- "Which types of LLM suggestions lead to the biggest fitness gains?"
+- "Is the LLM getting better at proposing mutations over time?"
+- "Can we fine-tune the analysis prompt based on which rationales lead to successful mutations?"
+
+This step transforms the system from one that simply *uses* AI to one that actively *evaluates and improves* its AI guidance.
+
 ### Phase 6: Termination Checks
 
 ```python
@@ -435,7 +461,7 @@ async def run_evolution(
         parent = repo.get_cell(best_cell_id)
 
         # 2. Generate mutation
-        mutated_genome = generate_mutation(parent, repo, mode)
+        mutated_genome, proposal_id = generate_mutation(parent, repo, mode)
 
         # 3. Backtest
         backtest_results = backtest_all_timeframes(mutated_genome, symbol)
@@ -448,6 +474,10 @@ async def run_evolution(
             # 5. LLM analysis (if trading-learn)
             if mode == 'trading-learn':
                 await analyze_cell_if_needed(new_cell_id, repo, mode, budget_remaining=10.0)
+
+            # 5.5 Close the loop if this was a guided mutation
+            if proposal_id:
+                link_proposal_to_result(repo, proposal_id, new_cell_id)
 
             # 6. Update best
             if best_result.fitness > best_fitness:

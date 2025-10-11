@@ -10,33 +10,6 @@ The trading evolution system is **90% functionally complete** but suffers from a
 
 ---
 
-## ✅ COMPLETED WORK (From IMPLEMENTATION_TODO.md)
-
-### Sprint 1-3: Core Infrastructure ✅
-- ✅ **Cell Storage System**: Full SQLite database with 8 tables
-- ✅ **Multi-timeframe Backtesting**: 1H/4H/1D support
-- ✅ **Evolution Integration**: Cell birth, lineage tracking, fitness storage
-- ✅ **LLM Integration**: Pattern discovery, intelligent mutations
-- ✅ **DSL V1**: Basic comparisons and indicators
-
-### Sprint 4: DSL V2 Enhancements ✅
-- ✅ **Phase 1: Arithmetic Operations** (+, -, *, /)
-- ✅ **Phase 2: Aggregation Functions** (AVG, SUM, MAX, MIN, STD)
-- ✅ **Phase 3: Logical Operators** (AND, OR, NOT)
-- ✅ **Phase 4: Multi-Timeframe Syntax** (DELTA_1H, DELTA_4H, etc.)
-
-### Sprint 6: Web Visualization (Partial) ✅
-- ✅ **Event Integration**: 8 new event types for evolution
-- ✅ **Cell Table Display**: Live updates via `/api/cells`
-- ✅ **Tabbed Interface**: Callgraph + Evolution Cells tabs
-
-### Latest Improvements ✅
-- ✅ **Zero-Trade Penalty**: Prevents inactive strategies from ranking high
-- ✅ **Adaptive Mutation Rates**: Temperature-based complexity control
-- ✅ **Zero-Trade Filtering**: Excludes inactive cells from LLM analysis
-
----
-
 ## 🎯 THE CORE PROBLEM
 
 ### Current Architecture (Tangled)

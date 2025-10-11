@@ -1575,7 +1575,13 @@ async def run_trading_evolve(
 
 
 async def main():
-    """Command-line entry point"""
+    """
+    Command-line entry point.
+
+    DEPRECATED: This argparse setup is being phased out. Please use the
+    top-level `trading_cli.py` script for a cleaner and more up-to-date
+    interface. This will be removed in a future version.
+    """
     load_dotenv()
     import argparse
 
