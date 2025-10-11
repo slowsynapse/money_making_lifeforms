@@ -160,3 +160,13 @@ benchmark_data/aiq_bench
 benchmark_data/file_editing_bench
 benchmark_data/symbol_location_bench
 check_boilerplate.sh
+
+# Trading evolution results and databases
+results/
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Claude Code ignore directory (useful files but not for auto-loading)
+cursor_docs/.claudeignore/
