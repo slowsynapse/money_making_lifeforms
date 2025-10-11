@@ -168,5 +168,6 @@ results/
 *.db-shm
 *.db-wal
 
-# Claude Code ignore directory (useful files but not for auto-loading)
+# Claude Code - exclude large docs from auto-loading
 cursor_docs/.claudeignore/
+cursor_docs/reference/
