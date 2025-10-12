@@ -659,6 +659,8 @@ async def run_trading_evolve(
     fitness_goal: float = 200.0,  # Target fitness to achieve before early termination
     lenient_cell_count: int = 100,  # Birth any survivor for first N cells (genetic diversity)
     server_enabled: bool = False,  # Whether to run the web server
+    dish_name: str | None = None,  # Petri dish experiment name (e.g., 'baseline_purr')
+    start_generation: int = 0,  # Starting generation (for resuming dishes)
 ) -> None:
     """
     Evolve trading strategies through pure DSL mutation with cell-based storage.
@@ -751,113 +753,148 @@ async def run_trading_evolve(
         cells_birthed = 0
         mutations_failed = 0
 
-        # Generation 0: Initial strategy
-        print(f"{'='*70}")
-        print(f"GENERATION 0: Initial Strategy")
-        print(f"{'='*70}")
+        # Check if we're resuming a dish or starting fresh
+        resuming_dish = start_generation > 0
 
-        if initial_strategy:
-            current_strategy = initial_strategy
-            print(f"Using provided strategy: {current_strategy}")
-        else:
-            # Generate random initial strategy
-            from ..dsl.grammar import Indicator, Operator, Action as DslAction
-
-            ind1 = random.choice(list(Indicator))
-            ind2 = random.choice(list(Indicator))
-            param1 = random.choice([0, 5, 10, 14, 20, 30, 50, 100, 200])
-            param2 = random.choice([0, 5, 10, 14, 20, 30, 50, 100, 200])
-            op = random.choice(list(Operator))
-            action1 = random.choice(list(DslAction))
-            action2 = random.choice([a for a in DslAction if a != action1])
-
-            param1_str = "" if param1 == 0 else str(param1)
-            param2_str = "" if param2 == 0 else str(param2)
-
-            current_strategy = f"IF {ind1.name}({param1_str}) {op.value} {ind2.name}({param2_str}) THEN {action1.name} ELSE {action2.name}"
-            print(f"Generated random strategy: {current_strategy}")
-
-        # Setup and test Gen 0
-        gen0_dir = results_dir / "gen_0"
-        gen0_dir.mkdir(parents=True, exist_ok=True)
-
-        await benchmark.setup_problem(base_problem, gen0_dir, "evolve_container")
-
-        # Write strategy
-        answer_file = gen0_dir / "answer.txt"
-        answer_file.write_text(current_strategy)
-
-        print(f"\n⚙️  Testing generation 0 on multi-timeframe data...")
-
-        # Parse the strategy for multi-timeframe testing
-        program = interpreter.parse(current_strategy)
-        if not program:
-            print(f"❌ Failed to parse initial strategy: {current_strategy}")
-            return
-
-        # Test on all timeframes
-        fitness, phenotypes, backtest_log = benchmark.run_multi_timeframe_backtest(
-            program, multi_tf_data, 'PURR'
-        )
-
-        current_fitness = fitness
-        # Check if strategy survived trading on ANY timeframe (portfolio didn't go to zero)
-        # Even negative fitness cells are valuable for genetic diversity
-        any_timeframe_completed = any(p.total_profit > -100.0 for p in phenotypes.values())  # Didn't blow up entire $100 capital
-        survived = any_timeframe_completed
-        status = "✓ SURVIVED" if survived else "✗ DIED"
-        print(f"\n{status} - Fitness: ${current_fitness:.2f}")
-        print(f"{backtest_log}")
-
-        # Birth Gen 0 cell if it survived trading (didn't blow up portfolio)
-        # Note: We're building cell lines for LLM analysis, not live trading
-        # Even negative fitness is valuable data!
-        current_cell_id = None
-        if survived:
-            current_cell_id = repo.birth_cell(
-                generation=0,
-                parent_cell_id=None,
-                dsl_genome=current_strategy,
-                fitness=current_fitness,
-                status='online',
-            )
-            cells_birthed += 1
-
-            # Store phenotypes for each timeframe
-            for tf, phenotype in phenotypes.items():
-                phenotype.cell_id = current_cell_id
-                repo.store_phenotype(phenotype)
-
-            print(f"🧬 Cell #{current_cell_id} birthed (Gen 0, fitness: ${current_fitness:.2f})")
-        else:
-            print(f"💀 Gen 0 catastrophically failed in trading (portfolio went to zero)")
-            print(f"   Cannot continue evolution without a starting cell")
-            mutations_failed += 1
-
-        population_history.append({
-            'generation': 0,
-            'strategy': current_strategy,
-            'fitness': current_fitness,
-            'survived': survived,
-            'parent': None,
-            'cell_id': current_cell_id,
-        })
-
-        best_fitness = current_fitness
-        best_strategy = current_strategy
-        best_generation = 0
-        best_cell_id = current_cell_id
+        # Initialize tracking variables
+        best_fitness = float('-inf')
+        best_strategy = None
+        best_generation = start_generation
+        best_cell_id = None
         generations_without_improvement = 0
 
-        # Check if Gen 0 already met the goal
-        if current_fitness >= fitness_goal:
-            print(f"\n🎯 GOAL ACHIEVED IN GEN 0! Fitness: ${current_fitness:.2f} >= ${fitness_goal:.2f}")
-            print(f"Terminating early - no need to evolve further!")
-            # Save and exit early
-            best_strategy_file = results_dir / "best_strategy.txt"
-            best_strategy_file.write_text(current_strategy)
-            print(f"✓ Best strategy saved to: {best_strategy_file}")
-            return
+        # Generation 0: Initial strategy (only if not resuming)
+        if not resuming_dish:
+            print(f"{'='*70}")
+            print(f"GENERATION {start_generation}: Initial Strategy")
+            print(f"{'='*70}")
+
+            if initial_strategy:
+                current_strategy = initial_strategy
+                print(f"Using provided strategy: {current_strategy}")
+            else:
+                # Generate random initial strategy
+                from ..dsl.grammar import Indicator, Operator, Action as DslAction
+
+                ind1 = random.choice(list(Indicator))
+                ind2 = random.choice(list(Indicator))
+                param1 = random.choice([0, 5, 10, 14, 20, 30, 50, 100, 200])
+                param2 = random.choice([0, 5, 10, 14, 20, 30, 50, 100, 200])
+                op = random.choice(list(Operator))
+                action1 = random.choice(list(DslAction))
+                action2 = random.choice([a for a in DslAction if a != action1])
+
+                param1_str = "" if param1 == 0 else str(param1)
+                param2_str = "" if param2 == 0 else str(param2)
+
+                current_strategy = f"IF {ind1.name}({param1_str}) {op.value} {ind2.name}({param2_str}) THEN {action1.name} ELSE {action2.name}"
+                print(f"Generated random strategy: {current_strategy}")
+
+            # Setup and test Gen 0
+            gen0_dir = results_dir / f"gen_{start_generation}"
+            gen0_dir.mkdir(parents=True, exist_ok=True)
+
+            await benchmark.setup_problem(base_problem, gen0_dir, "evolve_container")
+
+            # Write strategy
+            answer_file = gen0_dir / "answer.txt"
+            answer_file.write_text(current_strategy)
+
+            print(f"\n⚙️  Testing generation {start_generation} on multi-timeframe data...")
+
+            # Parse the strategy for multi-timeframe testing
+            program = interpreter.parse(current_strategy)
+            if not program:
+                print(f"❌ Failed to parse initial strategy: {current_strategy}")
+                return
+
+            # Test on all timeframes
+            fitness, phenotypes, backtest_log = benchmark.run_multi_timeframe_backtest(
+                program, multi_tf_data, 'PURR'
+            )
+
+            current_fitness = fitness
+            # Check if strategy survived trading on ANY timeframe (portfolio didn't go to zero)
+            # Even negative fitness cells are valuable for genetic diversity
+            any_timeframe_completed = any(p.total_profit > -100.0 for p in phenotypes.values())  # Didn't blow up entire $100 capital
+            survived = any_timeframe_completed
+            status = "✓ SURVIVED" if survived else "✗ DIED"
+            print(f"\n{status} - Fitness: ${current_fitness:.2f}")
+            print(f"{backtest_log}")
+
+            # Birth Gen 0 cell if it survived trading (didn't blow up portfolio)
+            # Note: We're building cell lines for LLM analysis, not live trading
+            # Even negative fitness is valuable data!
+            current_cell_id = None
+            if survived:
+                current_cell_id = repo.birth_cell(
+                    generation=start_generation,
+                    parent_cell_id=None,
+                    dsl_genome=current_strategy,
+                    fitness=current_fitness,
+                    status='online',
+                    dish_name=dish_name,
+                )
+                cells_birthed += 1
+
+                # Store phenotypes for each timeframe
+                for tf, phenotype in phenotypes.items():
+                    phenotype.cell_id = current_cell_id
+                    repo.store_phenotype(phenotype)
+
+                print(f"🧬 Cell #{current_cell_id} birthed (Gen {start_generation}, fitness: ${current_fitness:.2f})")
+            else:
+                print(f"💀 Gen {start_generation} catastrophically failed in trading (portfolio went to zero)")
+                print(f"   Cannot continue evolution without a starting cell")
+                mutations_failed += 1
+
+            population_history.append({
+                'generation': start_generation,
+                'strategy': current_strategy,
+                'fitness': current_fitness,
+                'survived': survived,
+                'parent': None,
+                'cell_id': current_cell_id,
+            })
+
+            best_fitness = current_fitness
+            best_strategy = current_strategy
+            best_generation = start_generation
+            best_cell_id = current_cell_id
+            generations_without_improvement = 0
+
+            # Check if Gen 0 already met the goal
+            if current_fitness >= fitness_goal:
+                print(f"\n🎯 GOAL ACHIEVED IN GEN {start_generation}! Fitness: ${current_fitness:.2f} >= ${fitness_goal:.2f}")
+                print(f"Terminating early - no need to evolve further!")
+                # Save and exit early
+                best_strategy_file = results_dir / "best_strategy.txt"
+                best_strategy_file.write_text(current_strategy)
+                print(f"✓ Best strategy saved to: {best_strategy_file}")
+                return
+        else:
+            # Resuming dish - load best cell from database
+            print(f"{'='*70}")
+            print(f"RESUMING DISH: {dish_name}")
+            print(f"{'='*70}")
+            print(f"\n📊 Loading existing cells from generation 0 to {start_generation - 1}...")
+
+            # Get best cell as starting point
+            best_cells = repo.get_top_cells(limit=1, status='online', dish_name=dish_name)
+            if not best_cells:
+                print(f"❌ No surviving cells found in dish '{dish_name}' - cannot resume evolution")
+                return
+
+            best_cell = best_cells[0]
+            best_fitness = best_cell.fitness
+            best_strategy = best_cell.dsl_genome
+            best_generation = best_cell.generation
+            best_cell_id = best_cell.cell_id
+
+            print(f"✓ Resuming from best cell: #{best_cell_id} (Gen {best_generation})")
+            print(f"   Fitness: ${best_fitness:.2f}")
+            print(f"   Strategy: {best_strategy}")
+            print(f"\n🚀 Starting evolution from generation {start_generation}...")
 
         # Evolve!
         for gen in range(1, generations + 1):
@@ -933,11 +970,12 @@ async def run_trading_evolve(
             if should_birth:
                 # Birth child cell
                 child_cell_id = repo.birth_cell(
-                    generation=gen,
+                    generation=start_generation + gen,
                     parent_cell_id=parent_cell.cell_id,
                     dsl_genome=mutated_strategy,
                     fitness=mutated_fitness,
                     status='online',
+                    dish_name=dish_name,
                 )
                 cells_birthed += 1
 

@@ -68,6 +68,8 @@ class CellRepository:
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS cells (
                     cell_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    cell_name TEXT UNIQUE,
+                    dish_name TEXT,
                     generation INTEGER NOT NULL,
                     parent_cell_id INTEGER,
                     dsl_genome TEXT NOT NULL,
@@ -89,6 +91,16 @@ class CellRepository:
                     CHECK (status IN ('online', 'deprecated', 'archived', 'extinct'))
                 )
             """)
+
+            # Migrate existing databases: add cell_name and dish_name if they don't exist
+            cursor.execute("PRAGMA table_info(cells)")
+            columns = [row[1] for row in cursor.fetchall()]
+
+            if 'cell_name' not in columns:
+                cursor.execute("ALTER TABLE cells ADD COLUMN cell_name TEXT")
+
+            if 'dish_name' not in columns:
+                cursor.execute("ALTER TABLE cells ADD COLUMN dish_name TEXT")
 
             # Table 2: cell_phenotypes
             cursor.execute("""
@@ -273,6 +285,16 @@ class CellRepository:
             """)
 
             cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_cells_cell_name
+                ON cells(cell_name)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_cells_dish_name
+                ON cells(dish_name)
+            """)
+
+            cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_phenotypes_cell
                 ON cell_phenotypes(cell_id)
             """)
@@ -293,6 +315,8 @@ class CellRepository:
         """Convert database row to Cell dataclass."""
         return Cell(
             cell_id=row['cell_id'],
+            cell_name=row['cell_name'],  # Can be None for old cells
+            dish_name=row['dish_name'],  # Can be None for old cells
             generation=row['generation'],
             parent_cell_id=row['parent_cell_id'],
             dsl_genome=row['dsl_genome'],
@@ -382,6 +406,56 @@ class CellRepository:
             total_tokens_used=row['total_tokens_used'],
         )
 
+    def _generate_cell_name(self, dish_name: str, generation: int) -> str:
+        """
+        Generate a unique cell name for this dish and generation.
+
+        Format: {dish_name}_g{generation}_c{counter}
+        Example: baseline_purr_g114_c001
+
+        Args:
+            dish_name: Name of the experiment dish
+            generation: Generation number
+
+        Returns:
+            Unique cell name
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            # Count how many cells were birthed in this generation for this dish
+            cursor.execute("""
+                SELECT COUNT(*) as count FROM cells
+                WHERE dish_name = ? AND generation = ?
+            """, (dish_name, generation))
+            count = cursor.fetchone()['count']
+
+            counter = count + 1
+            return f"{dish_name}_g{generation}_c{counter:03d}"
+
+    def get_max_generation(self, dish_name: Optional[str] = None) -> int:
+        """
+        Get the maximum generation number in the database.
+
+        Args:
+            dish_name: Optional dish name to filter by
+
+        Returns:
+            Maximum generation number, or -1 if no cells exist
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            if dish_name:
+                cursor.execute("""
+                    SELECT MAX(generation) as max_gen FROM cells
+                    WHERE dish_name = ?
+                """, (dish_name,))
+            else:
+                cursor.execute("SELECT MAX(generation) as max_gen FROM cells")
+
+            result = cursor.fetchone()
+            max_gen = result['max_gen']
+            return max_gen if max_gen is not None else -1
+
     # CRUD Methods for Cells
     def birth_cell(
         self,
@@ -389,6 +463,7 @@ class CellRepository:
         parent_cell_id: Optional[int],
         dsl_genome: str,
         fitness: float,
+        dish_name: Optional[str] = None,
         status: str = 'online',
     ) -> int:
         """
@@ -399,17 +474,23 @@ class CellRepository:
             parent_cell_id: Parent cell ID (None for seed)
             dsl_genome: DSL strategy code
             fitness: Economic performance (profit - fees - LLM costs)
+            dish_name: Name of the experiment dish (optional for backward compat)
             status: Cell status ('online' by default)
 
         Returns:
             cell_id: ID of the newly birthed cell
         """
+        # Generate cell name if dish_name is provided
+        cell_name = None
+        if dish_name:
+            cell_name = self._generate_cell_name(dish_name, generation)
+
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                INSERT INTO cells (generation, parent_cell_id, dsl_genome, fitness, status)
-                VALUES (?, ?, ?, ?, ?)
-            """, (generation, parent_cell_id, dsl_genome, fitness, status))
+                INSERT INTO cells (cell_name, dish_name, generation, parent_cell_id, dsl_genome, fitness, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (cell_name, dish_name, generation, parent_cell_id, dsl_genome, fitness, status))
             return cursor.lastrowid
 
     def get_cell(self, cell_id: int) -> Optional[Cell]:
@@ -428,7 +509,13 @@ class CellRepository:
             row = cursor.fetchone()
             return self._row_to_cell(row) if row else None
 
-    def get_top_cells(self, limit: int = 10, status: str = 'online', min_trades: int = 0) -> List[Cell]:
+    def get_top_cells(
+        self,
+        limit: int = 10,
+        status: str = 'online',
+        min_trades: int = 0,
+        dish_name: Optional[str] = None
+    ) -> List[Cell]:
         """
         Get top cells by fitness.
 
@@ -437,6 +524,7 @@ class CellRepository:
             status: Filter by status ('online', 'deprecated', 'archived', 'extinct')
             min_trades: Minimum number of trades required (default 0). Use min_trades=1 to filter
                        out zero-trade strategies for LLM analysis.
+            dish_name: Optional filter by dish name
 
         Returns:
             List of Cell objects sorted by fitness descending
@@ -445,21 +533,40 @@ class CellRepository:
             cursor = conn.cursor()
             if min_trades > 0:
                 # Filter cells that have at least one phenotype with min_trades
-                cursor.execute("""
-                    SELECT DISTINCT c.* FROM cells c
-                    INNER JOIN cell_phenotypes cp ON c.cell_id = cp.cell_id
-                    WHERE c.status = ?
-                      AND cp.total_trades >= ?
-                    ORDER BY c.fitness DESC
-                    LIMIT ?
-                """, (status, min_trades, limit))
+                if dish_name:
+                    cursor.execute("""
+                        SELECT DISTINCT c.* FROM cells c
+                        INNER JOIN cell_phenotypes cp ON c.cell_id = cp.cell_id
+                        WHERE c.status = ?
+                          AND c.dish_name = ?
+                          AND cp.total_trades >= ?
+                        ORDER BY c.fitness DESC
+                        LIMIT ?
+                    """, (status, dish_name, min_trades, limit))
+                else:
+                    cursor.execute("""
+                        SELECT DISTINCT c.* FROM cells c
+                        INNER JOIN cell_phenotypes cp ON c.cell_id = cp.cell_id
+                        WHERE c.status = ?
+                          AND cp.total_trades >= ?
+                        ORDER BY c.fitness DESC
+                        LIMIT ?
+                    """, (status, min_trades, limit))
             else:
-                cursor.execute("""
-                    SELECT * FROM cells
-                    WHERE status = ?
-                    ORDER BY fitness DESC
-                    LIMIT ?
-                """, (status, limit))
+                if dish_name:
+                    cursor.execute("""
+                        SELECT * FROM cells
+                        WHERE status = ? AND dish_name = ?
+                        ORDER BY fitness DESC
+                        LIMIT ?
+                    """, (status, dish_name, limit))
+                else:
+                    cursor.execute("""
+                        SELECT * FROM cells
+                        WHERE status = ?
+                        ORDER BY fitness DESC
+                        LIMIT ?
+                    """, (status, limit))
             return [self._row_to_cell(row) for row in cursor.fetchall()]
 
     def get_lineage(self, cell_id: int) -> List[Cell]:

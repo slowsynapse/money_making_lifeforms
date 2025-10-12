@@ -7,14 +7,43 @@ let fitnessChart = null;
 let currentFilter = null; // null = all, true = LLM only, false = evolution only
 let activityLog = [];
 const MAX_LOG_ENTRIES = 100;
+let selectedDish = null; // Currently selected dish name
 
 // Initialize dashboard
 async function init() {
     console.log('Initializing dashboard...');
     logActivity('system', 'Dashboard initialized');
+    await loadDishes();
     await loadCells();
     setupEventListeners();
     setupActivityMonitoring();
+}
+
+// Load dishes into selector
+async function loadDishes() {
+    try {
+        const response = await fetch(`${API_BASE}/dishes`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+        const data = await response.json();
+        const selector = document.getElementById('dish-selector');
+
+        // Clear existing options except "Most Recent"
+        selector.innerHTML = '<option value="">Most Recent</option>';
+
+        // Add dish options
+        data.dishes.forEach(dish => {
+            const option = document.createElement('option');
+            option.value = dish.dish_name;
+            option.textContent = `🧫 ${dish.dish_name} (${dish.total_cells} cells, gen ${dish.total_generations})`;
+            selector.appendChild(option);
+        });
+
+        console.log(`Loaded ${data.dishes.length} dishes`);
+    } catch (error) {
+        console.error('Failed to load dishes:', error);
+        logActivity('error', `Failed to load dishes: ${error.message}`);
+    }
 }
 
 // Activity logging functions
@@ -106,9 +135,19 @@ async function loadCells(hasLlm = null) {
     try {
         console.log('Fetching cells from API...');
         let url = `${API_BASE}/cells/top/100`;
+        const params = new URLSearchParams();
+
         if (hasLlm !== null) {
-            url += `?has_llm=${hasLlm}`;
+            params.append('has_llm', hasLlm);
         }
+        if (selectedDish) {
+            params.append('dish', selectedDish);
+        }
+
+        if (params.toString()) {
+            url += `?${params.toString()}`;
+        }
+
         const response = await fetch(url);
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
@@ -116,7 +155,7 @@ async function loadCells(hasLlm = null) {
         const data = await response.json();
         allCells = data.cells;
 
-        console.log(`Loaded ${allCells.length} cells`);
+        console.log(`Loaded ${allCells.length} cells ${selectedDish ? `from dish "${selectedDish}"` : '(most recent)'}`);
 
         // Update stats
         updateStats();
@@ -267,11 +306,14 @@ async function loadCellDetails(cellId) {
     try {
         console.log(`Loading details for cell ${cellId}...`);
 
+        // Build URLs with dish parameter if selected
+        const dishParam = selectedDish ? `?dish=${selectedDish}` : '';
+
         // Fetch cell details and lineage in parallel
         const [cellResponse, lineageResponse, phenotypesResponse] = await Promise.all([
-            fetch(`${API_BASE}/cell/${cellId}`),
-            fetch(`${API_BASE}/cell/${cellId}/lineage`),
-            fetch(`${API_BASE}/cell/${cellId}/phenotypes`)
+            fetch(`${API_BASE}/cell/${cellId}${dishParam}`),
+            fetch(`${API_BASE}/cell/${cellId}/lineage${dishParam}`),
+            fetch(`${API_BASE}/cell/${cellId}/phenotypes${dishParam}`)
         ]);
 
         const cell = await cellResponse.json();
@@ -390,8 +432,50 @@ function renderLineageText(lineage) {
     }).join('\n');
 }
 
+// Load dish info
+async function loadDishInfo(dishName) {
+    try {
+        const response = await fetch(`${API_BASE}/dish/${dishName}`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+        const dish = await response.json();
+
+        // Update dish info bar
+        document.getElementById('dish-info-name').textContent = dish.dish_name;
+        document.getElementById('dish-info-description').textContent = dish.description || 'No description';
+        document.getElementById('dish-info-generations').textContent = dish.total_generations;
+        document.getElementById('dish-info-runs').textContent = dish.total_runs;
+        document.getElementById('dish-info-symbol').textContent = dish.symbol;
+
+        // Show dish info bar
+        document.getElementById('dish-info-bar').classList.remove('hidden');
+
+        console.log(`Loaded dish info for: ${dishName}`);
+    } catch (error) {
+        console.error('Failed to load dish info:', error);
+        logActivity('error', `Failed to load dish info: ${error.message}`);
+    }
+}
+
 // Setup event listeners
 function setupEventListeners() {
+    // Dish selector change
+    document.getElementById('dish-selector').addEventListener('change', async (e) => {
+        selectedDish = e.target.value || null;
+        console.log(`Dish selected: ${selectedDish || 'Most Recent'}`);
+        logActivity('system', `Switched to dish: ${selectedDish || 'Most Recent'}`);
+
+        // Load dish info if a dish is selected
+        if (selectedDish) {
+            await loadDishInfo(selectedDish);
+        } else {
+            // Hide dish info bar
+            document.getElementById('dish-info-bar').classList.add('hidden');
+        }
+
+        await loadCells(currentFilter);
+    });
+
     // Cell row click
     document.getElementById('cell-table-body').addEventListener('click', (e) => {
         const row = e.target.closest('.cell-row');
@@ -410,10 +494,22 @@ function setupEventListeners() {
     // Run button - Start trading-learn
     document.getElementById('run-btn').addEventListener('click', async () => {
         try {
-            logActivity('system', 'Starting trading-learn (100 iterations, local LLM)...');
+            const dishMsg = selectedDish ? ` on dish "${selectedDish}"` : '';
+            logActivity('system', `Starting trading-learn (30 iterations, local LLM)${dishMsg}...`);
+
+            const requestBody = {
+                iterations: 30
+            };
+            if (selectedDish) {
+                requestBody.dish = selectedDish;
+            }
 
             const response = await fetch(`${API_BASE}/learn/run`, {
-                method: 'POST'
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestBody)
             });
 
             const result = await response.json();

@@ -20,6 +20,7 @@ class Cell:
     - Fitness: Economic performance
     - Lineage: Parent and generation tracking
     - Semantics: LLM's interpretation (optional)
+    - Identity: Unique cell_name and dish_name for organization
     """
     cell_id: int
     generation: int
@@ -28,6 +29,10 @@ class Cell:
     fitness: float
     status: str  # 'online', 'deprecated', 'archived', 'extinct'
     created_at: datetime
+
+    # Dish identity (for multi-experiment organization)
+    cell_name: Optional[str] = None  # e.g., "baseline_purr_g114_c001"
+    dish_name: Optional[str] = None  # e.g., "baseline_purr"
 
     # LLM semantics (optional, populated by trading-learn mode)
     llm_name: Optional[str] = None
@@ -44,6 +49,8 @@ class Cell:
         """Convert to dictionary for JSON serialization."""
         return {
             'cell_id': self.cell_id,
+            'cell_name': self.cell_name,
+            'dish_name': self.dish_name,
             'generation': self.generation,
             'parent_cell_id': self.parent_cell_id,
             'dsl_genome': self.dsl_genome,

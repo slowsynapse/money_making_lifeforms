@@ -96,6 +96,17 @@ Examples:
         default=None,
         help="Directory to save results (default: auto-generated)"
     )
+    evolve_parser.add_argument(
+        "--dish",
+        type=str,
+        default=None,
+        help="Named experiment dish (e.g., 'baseline_purr'). Creates experiments/dish_name/ structure."
+    )
+    evolve_parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume evolution in existing dish (requires --dish)"
+    )
 
     # LEARN command
     learn_parser = subparsers.add_parser(
@@ -130,6 +141,12 @@ Examples:
         type=str,
         default=None,
         help="Directory to save results (default: auto-generated)"
+    )
+    learn_parser.add_argument(
+        "--dish",
+        type=str,
+        default=None,
+        help="Dish to learn from (default: most recent)"
     )
 
     # TEST command
@@ -173,14 +190,14 @@ Examples:
         help="Directory to save results (default: auto-generated)"
     )
 
-    # QUERY command (placeholder for now)
+    # QUERY command
     query_parser = subparsers.add_parser(
         "query",
         help="Query the cell database"
     )
     query_parser.add_argument(
         "query_type",
-        choices=["top-cells", "lineage", "patterns", "runs"],
+        choices=["top-cells", "lineage", "patterns", "runs", "summary"],
         help="Type of query to perform"
     )
     query_parser.add_argument(
@@ -199,6 +216,18 @@ Examples:
         type=int,
         default=0,
         help="Minimum number of trades (default: 0)"
+    )
+    query_parser.add_argument(
+        "--dish",
+        type=str,
+        default=None,
+        help="Filter by dish name"
+    )
+
+    # LIST-DISHES command
+    list_dishes_parser = subparsers.add_parser(
+        "list-dishes",
+        help="List all experiment dishes"
     )
 
     # WEB command (placeholder for now)
@@ -223,7 +252,7 @@ Examples:
 
 
 async def run_evolve(args):
-    """Run evolution mode with clean parameters."""
+    """Run evolution mode with dish support."""
     print(f"🧬 Starting Evolution")
     print(f"  Generations: {args.generations}")
     print(f"  Fitness Goal: ${args.fitness_goal}")
@@ -231,28 +260,91 @@ async def run_evolve(args):
     print(f"  Initial Capital: ${args.initial_capital}")
     print(f"  Stagnation Limit: {args.stagnation_limit}")
     print(f"  Lenient Cells: {args.lenient_cells}")
+
+    if args.dish:
+        print(f"  Dish: {args.dish} {'(resuming)' if args.resume else '(new)'}")
     print()
 
-    # Set up output directory
-    if args.output_dir:
-        output_dir = args.output_dir
+    # Dish-based architecture
+    if args.dish:
+        from base_agent.src.dish_manager import DishManager
+        from base_agent.src.storage.cell_repository import CellRepository
+
+        dm = DishManager(Path("experiments"))
+
+        if args.resume:
+            # Load existing dish
+            dish_path, config = dm.load_dish(args.dish)
+            db_path = dish_path / "evolution" / "cells.db"
+            repo = CellRepository(db_path)
+            start_gen = repo.get_max_generation(args.dish) + 1
+            print(f"📊 Resuming from generation {start_gen}")
+        else:
+            # Check if dish already exists
+            try:
+                dm.load_dish(args.dish)
+                print(f"❌ Error: Dish '{args.dish}' already exists. Use --resume to continue it.")
+                return
+            except FileNotFoundError:
+                pass
+
+            # Create new dish
+            dish_path = dm.create_dish(
+                dish_name=args.dish,
+                symbol=args.symbol,
+                initial_capital=args.initial_capital,
+                description=f"Evolution run: {args.generations} generations, goal ${args.fitness_goal}"
+            )
+            start_gen = 0
+
+        db_path = dish_path / "evolution" / "cells.db"
+
+        # Run evolution
+        await run_trading_evolve(
+            generations=args.generations,
+            workdir=dish_path,
+            fitness_goal=args.fitness_goal,
+            lenient_cell_count=args.lenient_cells,
+            server_enabled=False,
+            dish_name=args.dish,
+            start_generation=start_gen
+        )
+
+        # Update dish config after run
+        repo = CellRepository(db_path)
+        top_cells = repo.get_top_cells(limit=1, dish_name=args.dish)
+
+        if top_cells:
+            best_cell = top_cells[0]
+            dm.update_dish_config(
+                dish_name=args.dish,
+                total_generations=repo.get_max_generation(args.dish) + 1,
+                total_cells=repo.get_cell_count(),
+                best_fitness=best_cell.fitness,
+                best_cell_name=best_cell.cell_name
+            )
+
     else:
-        from datetime import datetime
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = f"results/evolve_{timestamp}"
+        # Legacy timestamp-based behavior
+        if args.output_dir:
+            output_dir = args.output_dir
+        else:
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_dir = f"results/evolve_{timestamp}"
 
-    os.makedirs(output_dir, exist_ok=True)
-    print(f"📁 Output directory: {output_dir}\n")
+        os.makedirs(output_dir, exist_ok=True)
+        print(f"📁 Output directory: {output_dir}")
+        print(f"💡 Tip: Use --dish <name> for named experiments!\n")
 
-    # Call the existing evolution function
-    # Note: We'll refactor this to use the new extracted module in Step 2
-    await run_trading_evolve(
-        generations=args.generations,
-        workdir=Path(output_dir),
-        fitness_goal=args.fitness_goal,
-        lenient_cell_count=args.lenient_cells,
-        server_enabled=False
-    )
+        # Call evolution function (backward compatible)
+        await run_trading_evolve(
+            generations=args.generations,
+            workdir=Path(output_dir),
+            fitness_goal=args.fitness_goal,
+            lenient_cell_count=args.lenient_cells,
+            server_enabled=False
+        )
 
 
 async def run_learn(args):
@@ -262,28 +354,46 @@ async def run_learn(args):
     print(f"  Cost Limit: ${args.cost_limit}")
     print(f"  Using: {'Local LLM (Ollama)' if args.use_local_llm else 'Cloud LLM'}")
     print(f"  Minimum Cells: {args.min_cells}")
-    print()
 
     # Set environment variable for local LLM if requested
     if args.use_local_llm:
         os.environ['USE_LOCAL_LLM'] = 'true'
 
-    # Set up output directory
-    if args.output_dir:
-        output_dir = args.output_dir
+    # Determine workdir based on dish or output_dir
+    if args.dish:
+        from base_agent.src.dish_manager import DishManager
+        dm = DishManager(Path("experiments"))
+        try:
+            dish_path, config = dm.load_dish(args.dish)
+            workdir = dish_path
+            print(f"  Using dish: {args.dish}")
+            print(f"  Dish path: {dish_path}\n")
+        except FileNotFoundError:
+            print(f"\n❌ Dish '{args.dish}' not found. Available dishes:")
+            for dish in dm.list_dishes():
+                print(f"  - {dish['dish_name']}")
+            return
     else:
-        from datetime import datetime
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = f"results/learn_{timestamp}"
+        # Legacy behavior: create timestamp-based output directory
+        if args.output_dir:
+            output_dir = args.output_dir
+        else:
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_dir = f"results/learn_{timestamp}"
 
-    os.makedirs(output_dir, exist_ok=True)
-    print(f"📁 Output directory: {output_dir}\n")
+        os.makedirs(output_dir, exist_ok=True)
+        workdir = Path(output_dir)
+        print(f"  Output directory: {output_dir}")
+        print(f"  💡 Tip: Use --dish <name> to run on a specific experiment!\n")
 
     # Call the existing learning function
     await run_trading_learn(
-        num_iterations=args.iterations,
-        cost_limit=args.cost_limit,
-        output_dir=output_dir
+        iterations=args.iterations,
+        workdir=workdir,
+        logdir=None,
+        server_enabled=False,
+        cost_threshold=args.cost_limit
     )
 
 
@@ -328,43 +438,91 @@ async def run_query(args):
 
     # Import here to avoid circular dependencies
     from base_agent.src.storage.cell_repository import CellRepository
+    from base_agent.src.dish_manager import DishManager
     from pathlib import Path
 
-    # Find the most recent cells.db
-    db_paths = []
+    # If dish specified, use dish database
+    if args.dish:
+        dm = DishManager(Path("experiments"))
+        try:
+            dish_path, config = dm.load_dish(args.dish)
+            db_path = dish_path / "evolution" / "cells.db"
+            print(f"📊 Using dish: {args.dish}\n")
+        except FileNotFoundError:
+            print(f"❌ Dish '{args.dish}' not found.")
+            print("Available dishes:")
+            for dish in dm.list_dishes():
+                print(f"  - {dish['dish_name']}")
+            return
+    else:
+        # Find the most recent cells.db
+        db_paths = []
 
-    # Search for all cells.db files in results directory
-    results_dir = Path("results")
-    if results_dir.exists():
-        # Use glob to find all cells.db files
-        all_dbs = list(results_dir.glob("**/cells.db"))
-        # Sort by modification time (most recent first)
-        all_dbs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-        db_paths.extend(all_dbs)
+        # First check experiments directory
+        experiments_dir = Path("experiments")
+        if experiments_dir.exists():
+            all_dbs = list(experiments_dir.glob("**/cells.db"))
+            all_dbs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            db_paths.extend(all_dbs)
 
-    # Also check root directory
-    if Path("cells.db").exists():
-        db_paths.append(Path("cells.db"))
+        # Then check results directory (legacy)
+        results_dir = Path("results")
+        if results_dir.exists():
+            all_dbs = list(results_dir.glob("**/cells.db"))
+            all_dbs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            db_paths.extend(all_dbs)
 
-    # Find first existing database
-    db_path = None
-    for path in db_paths:
-        if path.exists():
-            db_path = path
-            break
+        # Find first existing database
+        db_path = None
+        for path in db_paths:
+            if path.exists():
+                db_path = path
+                break
 
-    if not db_path:
-        print("❌ No cell database found. Run 'evolve' first to create cells.")
-        return
+        if not db_path:
+            print("❌ No cell database found. Run 'evolve' first to create cells.")
+            return
 
-    print(f"📊 Using database: {db_path}\n")
+        print(f"📊 Using database: {db_path}")
+        print(f"💡 Tip: Use --dish <name> to query a specific experiment\n")
+
     repo = CellRepository(db_path)
 
-    if args.query_type == "top-cells":
-        cells = repo.get_top_cells(limit=args.limit, min_trades=args.min_trades)
+    if args.query_type == "summary":
+        # Show dish summary
+        print(f"📊 Database Summary\n")
+        total_cells = repo.get_cell_count()
+        max_gen = repo.get_max_generation(args.dish)
+
+        print(f"  Total Cells: {total_cells}")
+        print(f"  Max Generation: {max_gen}")
+
+        if total_cells > 0:
+            top_cells = repo.get_top_cells(limit=1, dish_name=args.dish)
+            if top_cells:
+                best_cell = top_cells[0]
+                print(f"  Best Fitness: ${best_cell.fitness:.2f}")
+                if best_cell.cell_name:
+                    print(f"  Best Cell: {best_cell.cell_name}")
+                else:
+                    print(f"  Best Cell: #{best_cell.cell_id} (Gen {best_cell.generation})")
+                print(f"  Strategy: {best_cell.dsl_genome}")
+
+    elif args.query_type == "top-cells":
+        cells = repo.get_top_cells(
+            limit=args.limit,
+            min_trades=args.min_trades,
+            dish_name=args.dish
+        )
         print(f"Top {len(cells)} Cells by Fitness:\n")
-        print(f"{'ID':<6} {'Gen':<5} {'Fitness':<10} {'Trades':<8} {'Status':<10} {'Strategy'}")
-        print("-" * 80)
+
+        # Adjust headers based on whether we have cell names
+        if cells and cells[0].cell_name:
+            print(f"{'Cell Name':<25} {'Gen':<5} {'Fitness':<10} {'Trades':<8} {'Strategy'}")
+            print("-" * 90)
+        else:
+            print(f"{'ID':<6} {'Gen':<5} {'Fitness':<10} {'Trades':<8} {'Status':<10} {'Strategy'}")
+            print("-" * 80)
 
         for cell in cells:
             # Get phenotype for trade count
@@ -374,7 +532,10 @@ async def run_query(args):
             # Truncate strategy for display
             strategy = cell.dsl_genome[:40] + "..." if len(cell.dsl_genome) > 40 else cell.dsl_genome
 
-            print(f"{cell.cell_id:<6} {cell.generation:<5} ${cell.fitness:<9.2f} {total_trades:<8} {cell.status:<10} {strategy}")
+            if cell.cell_name:
+                print(f"{cell.cell_name:<25} {cell.generation:<5} ${cell.fitness:<9.2f} {total_trades:<8} {strategy}")
+            else:
+                print(f"{cell.cell_id:<6} {cell.generation:<5} ${cell.fitness:<9.2f} {total_trades:<8} {cell.status:<10} {strategy}")
 
     elif args.query_type == "lineage":
         if not args.cell_id:
@@ -386,7 +547,8 @@ async def run_query(args):
 
         for i, ancestor in enumerate(lineage):
             indent = "  " * i
-            print(f"{indent}└─ Cell #{ancestor.cell_id} (Gen {ancestor.generation}): ${ancestor.fitness:.2f}")
+            cell_display = ancestor.cell_name or f"#{ancestor.cell_id}"
+            print(f"{indent}└─ {cell_display} (Gen {ancestor.generation}): ${ancestor.fitness:.2f}")
 
     elif args.query_type == "patterns":
         # This will be implemented when we have pattern discovery
@@ -394,6 +556,35 @@ async def run_query(args):
 
     elif args.query_type == "runs":
         print("Evolution runs query coming soon...")
+
+
+async def run_list_dishes(args):
+    """List all experiment dishes."""
+    from base_agent.src.dish_manager import DishManager
+    from pathlib import Path
+
+    dm = DishManager(Path("experiments"))
+    dishes = dm.list_dishes()
+
+    if not dishes:
+        print("🧫 No dishes found.")
+        print("\nCreate your first dish with:")
+        print("  ./trade evolve --dish <name> --generations 100")
+        return
+
+    print(f"🧫 Experiment Dishes ({len(dishes)} total):\n")
+    print(f"{'Dish Name':<25} {'Cells':<8} {'Gens':<6} {'Best Fitness':<15} {'Created':<12} {'Description'}")
+    print("-" * 100)
+
+    for dish in dishes:
+        best_fit = f"${dish['best_fitness']:.2f}" if dish['best_fitness'] else "N/A"
+        created = dish['created_at'][:10]  # Just the date
+        desc = dish['description'][:30] + "..." if len(dish['description']) > 30 else dish['description']
+        print(f"{dish['dish_name']:<25} {dish['total_cells']:<8} {dish['total_generations']:<6} {best_fit:<15} {created:<12} {desc}")
+
+    print(f"\nQuery a dish with:")
+    print(f"  ./trade query summary --dish <name>")
+    print(f"  ./trade query top-cells --dish <name>")
 
 
 async def run_web(args):
@@ -425,6 +616,8 @@ async def main():
             await run_demo(args)
         elif args.command == "query":
             await run_query(args)
+        elif args.command == "list-dishes":
+            await run_list_dishes(args)
         elif args.command == "web":
             await run_web(args)
         else:

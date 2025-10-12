@@ -56,12 +56,38 @@ current_process: Optional[subprocess.Popen] = None
 process_output_file: Optional[Path] = None
 
 
-def get_repository() -> CellRepository:
-    """Get or create repository instance."""
+def get_repository(dish_name: Optional[str] = None) -> CellRepository:
+    """Get or create repository instance.
+
+    Args:
+        dish_name: Optional dish name to load specific dish database
+    """
     global repo
+
+    # If dish_name is specified, always load that specific dish
+    if dish_name:
+        from base_agent.src.dish_manager import DishManager
+        dm = DishManager(Path("experiments"))
+        try:
+            dish_path, config = dm.load_dish(dish_name)
+            db_path = dish_path / "evolution" / "cells.db"
+            return CellRepository(db_path)
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail=f"Dish '{dish_name}' not found")
+
+    # Otherwise, use the cached global repo or find most recent
     if repo is None:
         # Find the most recent cells.db
         db_paths = []
+
+        # First check experiments directory (new dish architecture)
+        experiments_dir = Path("experiments")
+        if experiments_dir.exists():
+            all_dbs = list(experiments_dir.glob("**/cells.db"))
+            all_dbs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            db_paths.extend(all_dbs)
+
+        # Then check results directory (legacy)
         results_dir = Path("results")
         if results_dir.exists():
             all_dbs = list(results_dir.glob("**/cells.db"))
@@ -102,17 +128,23 @@ async def root():
 
 
 @app.get("/cells/top/{limit}")
-async def get_top_cells(limit: int = 10, min_trades: int = 0, has_llm: Optional[bool] = None):
+async def get_top_cells(
+    limit: int = 10,
+    min_trades: int = 0,
+    has_llm: Optional[bool] = None,
+    dish: Optional[str] = None
+):
     """Get top cells by fitness.
 
     Args:
         limit: Maximum number of cells to return
         min_trades: Minimum number of trades required
         has_llm: Filter by LLM involvement (True=LLM only, False=evolution only, None=all)
+        dish: Optional dish name to filter by
     """
     try:
-        repo = get_repository()
-        cells = repo.get_top_cells(limit=limit, min_trades=min_trades)
+        repo = get_repository(dish_name=dish)
+        cells = repo.get_top_cells(limit=limit, min_trades=min_trades, dish_name=dish)
 
         result = []
         for cell in cells:
@@ -129,6 +161,8 @@ async def get_top_cells(limit: int = 10, min_trades: int = 0, has_llm: Optional[
 
             result.append({
                 "cell_id": cell.cell_id,
+                "cell_name": cell.cell_name,
+                "dish_name": cell.dish_name,
                 "generation": cell.generation,
                 "fitness": cell.fitness,
                 "total_trades": total_trades,
@@ -145,10 +179,10 @@ async def get_top_cells(limit: int = 10, min_trades: int = 0, has_llm: Optional[
 
 
 @app.get("/cell/{cell_id}")
-async def get_cell(cell_id: int):
+async def get_cell(cell_id: int, dish: Optional[str] = None):
     """Get a specific cell by ID."""
     try:
-        repo = get_repository()
+        repo = get_repository(dish_name=dish)
         cell = repo.get_cell(cell_id)
 
         if not cell:
@@ -160,10 +194,10 @@ async def get_cell(cell_id: int):
 
 
 @app.get("/cell/{cell_id}/phenotypes")
-async def get_cell_phenotypes(cell_id: int):
+async def get_cell_phenotypes(cell_id: int, dish: Optional[str] = None):
     """Get phenotypes for a cell."""
     try:
-        repo = get_repository()
+        repo = get_repository(dish_name=dish)
         phenotypes = repo.get_phenotypes(cell_id)
 
         return {
@@ -176,10 +210,10 @@ async def get_cell_phenotypes(cell_id: int):
 
 
 @app.get("/cell/{cell_id}/lineage")
-async def get_cell_lineage(cell_id: int):
+async def get_cell_lineage(cell_id: int, dish: Optional[str] = None):
     """Get lineage (ancestry) for a cell."""
     try:
-        repo = get_repository()
+        repo = get_repository(dish_name=dish)
         lineage = repo.get_lineage(cell_id)
 
         return {
@@ -349,9 +383,19 @@ async def broadcast_event(event_data: Dict[str, Any]):
         active_websockets.discard(ws)
 
 
+from pydantic import BaseModel
+
+class LearnRequest(BaseModel):
+    dish: Optional[str] = None
+    iterations: int = 30
+
 @app.post("/learn/run")
-async def run_trading_learn():
-    """Start trading-learn process with 100 iterations using local LLM."""
+async def run_trading_learn(request: LearnRequest):
+    """Start trading-learn process with local LLM on a specific dish.
+
+    Args:
+        request: LearnRequest with dish and iterations
+    """
     global current_process, process_output_file
 
     try:
@@ -362,17 +406,12 @@ async def run_trading_learn():
         # Create output file
         process_output_file = Path("/tmp") / f"trading_learn_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 
-        # Build docker command (matching your working command)
-        cmd = [
-            "docker", "run", "--rm", "--network", "host",
-            "--user", f"{os.getuid()}:{os.getgid()}",
-            "-e", "USE_LOCAL_LLM=true",
-            "-v", f"{Path.cwd()}/base_agent:/home/agent/agent_code",
-            "-v", f"{Path.cwd()}/benchmark_data:/home/agent/benchmark_data",
-            "-v", f"{Path.cwd()}/results/evolution_viz:/home/agent/workdir",
-            "sica_sandbox",
-            "python", "-m", "agent_code.agent", "trading-learn", "-n", "100"
-        ]
+        # Build command to run trading-learn directly on host
+        cmd = ["./trade", "learn", "-n", str(request.iterations), "--use-local-llm"]
+
+        # Add dish parameter if specified
+        if request.dish:
+            cmd.extend(["--dish", request.dish])
 
         # Start process with output redirection
         with open(process_output_file, 'w') as f:
@@ -380,13 +419,17 @@ async def run_trading_learn():
                 cmd,
                 stdout=f,
                 stderr=subprocess.STDOUT,
-                preexec_fn=os.setsid  # Create new process group for easier killing
+                preexec_fn=os.setsid,  # Create new process group for easier killing
+                cwd=str(Path.cwd())  # Run from project root
             )
 
+        dish_msg = f" on dish '{dish}'" if dish else ""
         return {
             "status": "success",
-            "message": "Trading-learn started with 100 iterations (local LLM)",
+            "message": f"Trading-learn started with {iterations} iterations (local LLM){dish_msg}",
             "pid": current_process.pid,
+            "dish": dish,
+            "iterations": iterations,
             "output_file": str(process_output_file)
         }
     except Exception as e:
@@ -458,6 +501,88 @@ async def get_learn_output(lines: int = 50):
         return {"output": result.stdout, "file": str(process_output_file)}
     except Exception as e:
         return {"output": f"Error reading output: {e}"}
+
+
+@app.get("/dishes")
+async def list_dishes():
+    """List all experiment dishes."""
+    try:
+        from base_agent.src.dish_manager import DishManager
+        dm = DishManager(Path("experiments"))
+        dishes = dm.list_dishes()
+
+        return {
+            "dishes": dishes,
+            "count": len(dishes)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/dish/{dish_name}")
+async def get_dish(dish_name: str):
+    """Get details for a specific dish."""
+    try:
+        from base_agent.src.dish_manager import DishManager
+        dm = DishManager(Path("experiments"))
+        dish_path, config = dm.load_dish(dish_name)
+
+        # Get additional stats from database
+        db_path = dish_path / "evolution" / "cells.db"
+        if db_path.exists():
+            repo = CellRepository(db_path)
+            top_cells = repo.get_top_cells(limit=5, dish_name=dish_name)
+
+            config["top_cells"] = [
+                {
+                    "cell_id": cell.cell_id,
+                    "cell_name": cell.cell_name,
+                    "generation": cell.generation,
+                    "fitness": cell.fitness,
+                    "dsl_genome": cell.dsl_genome
+                }
+                for cell in top_cells
+            ]
+
+        return config
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Dish '{dish_name}' not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/dish/{dish_name}/summary")
+async def get_dish_summary(dish_name: str):
+    """Get summary statistics for a dish."""
+    try:
+        repo = get_repository(dish_name=dish_name)
+
+        total_cells = repo.get_cell_count()
+        max_gen = repo.get_max_generation(dish_name)
+
+        summary = {
+            "dish_name": dish_name,
+            "total_cells": total_cells,
+            "max_generation": max_gen,
+            "best_fitness": None,
+            "best_cell": None
+        }
+
+        if total_cells > 0:
+            top_cells = repo.get_top_cells(limit=1, dish_name=dish_name)
+            if top_cells:
+                best_cell = top_cells[0]
+                summary["best_fitness"] = best_cell.fitness
+                summary["best_cell"] = {
+                    "cell_id": best_cell.cell_id,
+                    "cell_name": best_cell.cell_name,
+                    "generation": best_cell.generation,
+                    "dsl_genome": best_cell.dsl_genome
+                }
+
+        return summary
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.on_event("startup")

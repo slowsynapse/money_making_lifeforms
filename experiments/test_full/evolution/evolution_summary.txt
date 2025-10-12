@@ -1,0 +1,21 @@
+Evolution Summary
+==================================================
+
+Generations: 5
+Cells Birthed: 5
+Mutations Failed: 0
+Success Rate: 100.0%
+Survival Rate: 100.0%
+Termination Reason: max_generations_reached
+
+Best Strategy (Gen 3):
+  Fitness: $-0.09
+  Strategy: IF ZETA(14) < ZETA(30) THEN BUY ELSE BUY
+  Cell ID: #4
+
+Full History:
+  Gen 1: $-42.81 - IF ZETA(14) < ZETA(30) THEN BUY ELSE HOLD (Cell #12)
+  Gen 2: $-37.70 - IF ZETA(14) < ZETA(100) THEN BUY ELSE BUY (Cell #13)
+  Gen 3: $-0.09 - IF ZETA(14) < ZETA(30) THEN HOLD ELSE BUY (Cell #14)
+  Gen 4: $-0.09 - IF ZETA(14) < ZETA(30) THEN SELL ELSE BUY (Cell #15)
+  Gen 5: $-0.09 - IF ZETA(14) < ZETA(30) THEN SELL ELSE BUY (Cell #16)

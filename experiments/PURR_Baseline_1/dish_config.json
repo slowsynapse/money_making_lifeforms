@@ -1,0 +1,17 @@
+{
+  "dish_name": "PURR_Baseline_1",
+  "created_at": "2025-10-09T21:47:51",
+  "symbol": "PURR",
+  "initial_capital": 1000.0,
+  "mutation_rate": "standard",
+  "dsl_version": "v2_phase1",
+  "description": "Migrated from results/evolve_20251009_214751 - Baseline PURR evolution test with 114 generations",
+  "total_generations": 216,
+  "total_cells": 201,
+  "total_runs": 2,
+  "best_fitness": 65.35000150920243,
+  "best_cell_name": "PURR_Baseline_1_g114_c001",
+  "last_updated": "2025-10-12T01:28:25.948978",
+  "migration_source": "results/evolve_20251009_214751",
+  "migration_date": "2025-10-12T08:12:14.007997"
+}
