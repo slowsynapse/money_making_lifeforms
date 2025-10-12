@@ -171,3 +171,5 @@ results/
 # Claude Code - exclude large docs from auto-loading
 cursor_docs/.claudeignore/
 cursor_docs/reference/
+docs/
+base_agent/README.md
