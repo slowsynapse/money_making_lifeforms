@@ -1,6 +1,6 @@
 <p align="center">
   <h1 align="center">💰 Money Making Lifeforms 🧬</h1>
-  <p align="center">AI agents that must earn their own existence through trading profits.</p>
+  <p align="center">AI agents that evolve trading strategies through natural selection.</p>
   <p align="center">
     <img src="figures/agent_loop.png" alt="Agent Loop" width="80%"/>
   </p>
@@ -10,26 +10,26 @@
 
 ## The Concept
 
-**What if an AI agent had to pay for its own compute through trading profits?**
+**What if trading strategies evolved like biological organisms, with no human bias about what "should" work?**
 
-This system implements **evolutionary natural selection** where agents generate trading strategies in an abstract symbolic language with **no predefined technical indicators**. Fitness is purely economic:
+This system implements **evolutionary natural selection** for trading strategies using an abstract symbolic language with **no predefined technical indicators**. Fitness is purely economic:
 
 ```
-Fitness = Trading Profit - Transaction Costs - LLM API Costs
+Fitness = Trading Profit - Transaction Costs - LLM API Costs (optional)
 ```
 
-**If Fitness ≤ 0, the agent dies.**
+**If Fitness ≤ 0, the strategy dies. If Fitness > Parent Fitness, it survives and propagates.**
 
-### The "Oxygen Check"
+### The "Petri Dish" Metaphor
 
-Like biological organisms need oxygen to survive, these digital organisms need positive cash flow. The agent:
-- Starts with initial capital ($100-$10,000 configurable)
-- Pays ~$0.02 per strategy generation (LLM API costs)
-- Earns money through successful trading strategies
-- **Dies immediately** if balance hits $0 during backtesting
-- **Dies in selection** if profit doesn't cover costs
+Like biological experiments in petri dishes, strategies evolve in isolated experimental environments called **dishes**. Each dish is a named long-running evolution experiment with:
 
-This creates genuine evolutionary pressure. No arbitrary benchmarks—only real economic constraints.
+- Persistent cell database tracking lineage
+- Multi-generation evolution
+- Pattern discovery across populations
+- Economic survival pressure
+
+Strategies that generate profit survive and mutate. Those that don't are discarded but analyzed for failure patterns.
 
 ### Abstract Symbolic Language (Zero Human Bias)
 
@@ -37,13 +37,13 @@ Instead of using human-designed indicators like RSI or MACD, strategies use mean
 
 ```
 IF ALPHA(10) > BETA(50) THEN BUY ELSE SELL
-IF GAMMA(14) < 30 THEN BUY ELSE HOLD
-IF OMEGA() >= PSI() THEN HOLD ELSE SELL
+IF GAMMA(14) < DELTA(20) THEN BUY ELSE HOLD
+IF DELTA(0) > DELTA(20) AND EPSILON() > 1000 THEN BUY ELSE SELL
 ```
 
 **The symbols have no predefined meaning.** The agent doesn't "know" that moving averages exist or that "oversold" is a concept. It must discover profitable patterns through pure trial and error—natural selection with zero priors.
 
-Over hundreds of generations, certain symbol combinations emerge as more fit than others. **These patterns are discovered, not designed.**
+Symbols map to OHLCV data internally, but the evolution process has no knowledge of this mapping.
 
 See [`cursor_docs/DSL_DESIGN.md`](cursor_docs/DSL_DESIGN.md) for the philosophical rationale.
 
@@ -54,21 +54,22 @@ See [`cursor_docs/DSL_DESIGN.md`](cursor_docs/DSL_DESIGN.md) for the philosophic
 │                  EVOLUTIONARY CYCLE                      │
 └──────────────────────────────────────────────────────────┘
 
-1. Agent generates DSL trading strategy (abstract symbols)
+1. Generate/mutate DSL trading strategy
    ↓
-2. Strategy backtested on historical OHLCV data
+2. Test on multi-timeframe backtest (1h, 4h, 1d)
    ↓
-3. Real-time survival check:
-   - Balance hits $0? → DIES (score = -10000)
-   - Balance positive? → Continue
+3. Calculate fitness:
+   - Best timeframe profit
+   - Minus transaction costs (0.045% per trade)
+   - Minus LLM costs (if using cloud LLM)
    ↓
-4. Calculate fitness: Profit - LLM Cost
+4. Survival check:
+   - Fitness > Parent? → Birth new CELL, continue evolution
+   - Fitness ≤ Parent? → Record failure, try again
    ↓
-5. Evolutionary selection:
-   - Fitness > 0? → Strategy SURVIVES and propagates
-   - Fitness ≤ 0? → Strategy DIES
+5. Pattern discovery (LLM analyzes successful cells)
    ↓
-6. Mutate surviving strategy (operators/symbols/actions)
+6. Intelligent mutation (LLM proposes improvements)
    ↓
 7. Repeat from step 1
 ```
@@ -77,249 +78,335 @@ See [`cursor_docs/DSL_DESIGN.md`](cursor_docs/DSL_DESIGN.md) for the philosophic
 
 Just mutation, selection, and survival of the economically fit.
 
-See [`cursor_docs/EVOLUTIONARY_LOOP.md`](cursor_docs/EVOLUTIONARY_LOOP.md) for implementation details.
-
 ## Quick Start 🚀
-
-> **IMPORTANT**: Always run in Docker for isolation. The agent executes shell commands.
 
 ### 1. Setup
 
 ```bash
 # Clone the repo
 git clone https://github.com/YOUR_USERNAME/money_making_lifeforms
+cd money_making_lifeforms
 
-# Export at least one LLM API key
-export ANTHROPIC_API_KEY=your_key_here  # Recommended: Claude 3.5 Sonnet
-export DEEPSEEK_API_KEY=your_key_here   # Budget option
-# ... or other providers (OpenAI, Gemini, Fireworks, Vertex)
-
-# Build Docker image
-make image  # or make image-mac for Apple Silicon
-
-# Install local dependencies (for evolution runner)
+# Install dependencies
 pip install -r base_agent/requirements.txt
+
+# Optional: Install Ollama for FREE local LLM (recommended!)
+# https://ollama.ai
+ollama pull gemma2:27b-instruct-q4_K_M
+
+# Export API key if using cloud LLM
+export ANTHROPIC_API_KEY=your_key_here  # Or other providers
 ```
 
 ### 2. Try It Out
 
-**Demo Mode** (No API costs, just explains the system):
+**Demo Mode** (No costs, explains the system):
 ```bash
-make int  # Enter Docker container
-python -m agent_code.agent trading-demo
+./trade demo
 ```
 
-**Test a Single Strategy** (No API costs):
+**Test a Single Strategy** (No costs):
 ```bash
-python -m agent_code.agent trading-test --strategy "IF ALPHA(10) > BETA(50) THEN BUY ELSE HOLD"
+./trade test --strategy "IF DELTA(0) > DELTA(20) THEN BUY ELSE SELL"
 ```
 
-**Agent Learning Mode** (Uses LLM, costs ~$0.02/iteration):
+**Pure Genetic Evolution** (No LLM, completely free):
 ```bash
-python -m agent_code.agent trading-learn -n 5 -s
-# Then open http://localhost:8080 to watch it think!
+./trade evolve --dish my_experiment --generations 100
 ```
 
-**Full Evolution** (Runs generations outside Docker):
+**LLM-Guided Learning** (Intelligent mutations, ~$0.0001/iteration with local LLM):
 ```bash
-exit  # Leave Docker
-python runner.py --evolution-mode --iterations 10 --workers 4
+# With local LLM (FREE!)
+USE_LOCAL_LLM=true ./trade learn --dish smart_experiment --iterations 100
+
+# Or with cloud LLM
+./trade learn --dish smart_experiment --iterations 10
 ```
 
-### 3. Understand the Results
-
+**Web Dashboard** (Real-time monitoring):
 ```bash
-# View fitness progression
-cat results/run_1/agent_*/benchmarks/trading/results.jsonl | jq -r '.score'
-
-# See evolved strategies
-cat results/run_1/agent_*/benchmarks/trading/trend_following_1/answer/answer.txt
+./trade web &
+# Open http://localhost:8081
 ```
 
-**Survival indicators:**
-- ✅ `Fitness: $199.88` → Strategy SURVIVED (profit > costs)
-- ❌ `Fitness: -$9,850.00` → Strategy DIED (balance hit zero)
-- ❌ `Fitness: -$0.0065` → Strategy DIED (profit < costs)
+### 3. Monitor Progress
 
-See [`TRADING_QUICKSTART.md`](TRADING_QUICKSTART.md) for detailed usage examples.
+```bash
+# View top performing cells
+./trade query top-cells --limit 10
+
+# List all experiments
+./trade list-dishes
+
+# Query specific cell lineage
+./trade query lineage --cell-id 42
+```
 
 ## Evolution Modes
 
-### Trading Evolution (DSL Mutation)
+### Pure Genetic Evolution (Free!)
 
-This runs pure evolutionary computation with the abstract symbolic DSL:
+Random mutations with natural selection—no LLM costs:
 
 ```bash
-# Run multiple generations of mutation and selection
-python runner.py --evolution-mode --iterations 10 --workers 4
-
-# Resume from a previous experiment
-python runner.py --evolution-mode --experiment-id 1 --iterations 20
+./trade evolve --dish baseline_experiment --generations 100 --fitness-goal 50.0
 ```
 
 **How it works:**
-1. Generation 0 creates a random DSL strategy
+1. Generation 0 creates a random strategy
 2. Each generation:
-   - Backtests the current strategy
-   - Calculates fitness (profit - costs)
-   - If fitness > 0, strategy survives
-   - Mutates the strategy (change operators/symbols/actions)
-3. Repeat until patterns emerge
+   - Backtests current strategy on 1h, 4h, 1d timeframes
+   - Calculates aggregate fitness
+   - If fitness > parent, births new cell
+   - Randomly mutates: change operators, symbols, parameters, actions
+3. Stores all cells in `experiments/<dish>/evolution/cells.db`
 
-Results saved to `results/run_<id>/agent_<n>/benchmarks/trading/`
+**Best for:** Building a diverse population of strategies for later LLM analysis.
 
-### Meta-Agent Mode (Traditional Self-Improvement)
+### LLM-Guided Learning (Intelligent)
 
-The original mode where the agent modifies its own codebase:
+The LLM analyzes successful strategies and proposes intelligent mutations:
 
 ```bash
-# First, configure benchmarks in base_agent/src/benchmarks/__init__.py
-python runner.py --id 1 --workers 6
+# Local LLM (FREE with Ollama!)
+USE_LOCAL_LLM=true ./trade learn --dish smart_evolution --iterations 100
+
+# Cloud LLM (costs ~$0.02-0.10 per iteration)
+./trade learn --dish smart_evolution --iterations 10 --cost-threshold 1.0
 ```
 
-This runs the classic self-improvement loop on coding benchmarks.
+**How it works:**
+1. **Pattern Discovery**: LLM analyzes top cells and identifies successful patterns
+2. **Intelligent Mutation**: LLM proposes targeted mutations with rationale
+3. **Validation**: Proposed strategy is parsed and backtested
+4. **Selection**: Only mutations that beat parent fitness are saved
+5. **Learning**: System learns from both successes and failures
 
-## Research Directions
+**Best for:** Exploiting discovered patterns and refining strategies.
 
-Potential extensions for the Money Making Lifeforms system:
+## Key Features
 
-### DSL & Evolution
-- [ ] **Expand mutation types**: Mutate symbols, parameters, add nested conditions (AND/OR logic)
-- [ ] **Crossover breeding**: Combine successful strategies from multiple lineages
-- [ ] **Adaptive mutation rates**: Increase mutation when stuck, decrease when improving
-- [ ] **Multi-objective optimization**: Balance profit, risk, and drawdown
+### 🧬 Cell-Based Evolution
 
-### Market Integration
-- [ ] **Real-time data**: Connect to Hyperliquid API for live market data
-- [ ] **Multi-asset evolution**: Test strategies across BTC, ETH, SOL simultaneously
-- [ ] **Paper trading**: Deploy surviving strategies to paper trading accounts
-- [ ] **Live deployment**: Run the best evolved strategies with real capital (at your own risk!)
+Strategies are stored as **cells** with full lineage tracking:
 
-### Economic Modeling
-- [ ] **Dynamic capital allocation**: Adjust starting capital based on agent performance
-- [ ] **Transaction cost modeling**: Include slippage, market impact, and funding rates
-- [ ] **Risk-adjusted fitness**: Sharpe ratio or Sortino ratio instead of raw profit
-- [ ] **Multi-agent competition**: Run populations competing for limited capital
+```
+Cell #101 (Gen 0)  [$65.35]
+  └─> Cell #102 (Gen 1)  [$72.50]  ✓ Improvement!
+       └─> Cell #103 (Gen 2)  [$85.20]  ✓ Improvement!
+```
 
-### Meta-Learning
-- [ ] **Agent learns to mutate**: LLM proposes mutations instead of random changes
-- [ ] **Strategy explanation**: Agent analyzes why certain symbols work
-- [ ] **Transfer learning**: Apply patterns discovered in one market to another
-- [ ] **Self-modification**: Agent improves its own DSL grammar and interpreter
+- Persistent SQLite database
+- Parent-child relationships
+- Multi-timeframe phenotypes
+- Failed mutation tracking
+
+### 🔬 Petri Dish Experiments
+
+Named experiments for long-running evolution:
+
+```bash
+./trade evolve --dish PURR_Baseline_1 --generations 1000
+./trade evolve --dish BTC_Momentum --generations 500
+./trade learn --dish PURR_Baseline_1 --iterations 100  # Resume!
+```
+
+Each dish maintains its own cell database and can be resumed anytime.
+
+### 📊 Multi-Timeframe Testing
+
+Every strategy is tested on multiple timeframes simultaneously:
+
+```
+Multi-timeframe backtest results:
+  1h: $-36.49 profit, 5 trades, 100.0% win rate
+✓ 4h: $11.46 profit, 7 trades, 66.7% win rate    ← Best!
+  1d: $-45.88 profit, 0 trades, N/A win rate
+
+Fitness: $11.46 (best timeframe selected)
+```
+
+Prevents overfitting to a single timescale.
+
+### 🤖 Local LLM Support (FREE!)
+
+Use Ollama for zero-cost intelligent mutations:
+
+```bash
+# Install Ollama
+ollama pull gemma2:27b-instruct-q4_K_M
+
+# Run with local LLM
+USE_LOCAL_LLM=true ./trade learn --dish free_learning --iterations 1000
+```
+
+No API costs, complete privacy, unlimited iterations!
+
+### 🧠 Pattern Discovery
+
+LLM analyzes top-performing cells to identify successful patterns:
+
+```
+🔍 DISCOVERED PATTERNS:
+   - momentum_reversal (Technical): Using recent price momentum
+     with reversal detection
+     Used by 15 cells
+
+   - volume_confirmation (Market Structure): High volume confirms
+     directional moves
+     Used by 23 cells
+```
+
+These patterns guide future intelligent mutations.
+
+### 📈 Web Dashboard
+
+Real-time evolution monitoring at `http://localhost:8081`:
+
+- Live fitness progression
+- Cell lineage trees
+- Multi-timeframe performance
+- Pattern discovery results
+- Run/pause evolution controls
 
 ## System Architecture
 
-### Trading Evolution Components
-
-The Money Making Lifeforms system consists of:
-
-**Core DSL Engine:**
-- `base_agent/src/dsl/grammar.py` - Abstract symbolic language definition
-- `base_agent/src/dsl/interpreter.py` - Strategy parser and backtesting executor
-- `base_agent/src/dsl/mutator.py` - Evolutionary mutation logic
-
-**Fitness Evaluation:**
-- `base_agent/src/benchmarks/trading_benchmarks/trading_benchmark.py` - Economic survival evaluation
-- `benchmark_data/trading/ohlcv.csv` - Historical market data (100 days)
-
-**Evolution Runner:**
-- `runner.py` - Multi-generation orchestrator with mutation and selection
-
-**Agent Modes:**
-- `trading-demo` - Explains the system (no API costs)
-- `trading-test` - Tests a single strategy (no API costs)
-- `trading-learn` - Agent uses LLM to generate and improve strategies
-- `--evolution-mode` - Pure DSL mutation across generations
-
-### Base Agent Framework
-
-The agent inherits from the original self-improving coding agent framework. It still supports traditional meta-improvement on coding benchmarks, but the primary focus is now trading evolution.
-
-See `base_agent/README.md` for the original agent framework documentation.
+### Core Components
 
 ```
+money_making_lifeforms/
 ├── base_agent/
 │   ├── src/
-│   │   ├── benchmarks/
-│   │   │   └── trading_benchmarks/
-│   │   │       ├── trading_benchmark.py  # Fitness evaluation
-│   │   │       └── problems.py           # Trading problem definitions
 │   │   ├── dsl/
-│   │   │   ├── grammar.py      # Abstract symbolic language
-│   │   │   ├── interpreter.py  # Strategy parser & backtester
-│   │   │   └── mutator.py      # Evolutionary mutations
-│   │   ├── agents/             # Agent implementations
-│   │   ├── llm/                # LLM providers
-│   │   ├── tools/              # Agent tools
-│   │   ├── web_server/         # Real-time visualization (port 8080)
-│   │   └── ...
-│   └── tests/
-│       ├── benchmarks/
-│       │   └── test_trading_benchmark.py  # Comprehensive tests
-│       ├── dsl/
-│       │   ├── test_interpreter.py
-│       │   └── test_mutator.py
-│       └── ...
-├── benchmark_data/
-│   └── trading/
-│       └── ohlcv.csv           # Historical market data
-├── cursor_docs/
-│   ├── DSL_DESIGN.md           # Philosophy & rationale
-│   ├── EVOLUTIONARY_LOOP.md    # System architecture
-│   ├── RUNNING_EVOLUTION.md    # Usage guide
-│   ├── TROUBLESHOOTING.md      # Common issues
-│   └── WEB_INTERFACE.md        # Visualization guide
-├── results/
-│   ├── run_<id>/               # Evolution results
-│   └── interactive_output/     # Interactive mode outputs
-├── runner.py                   # Evolution orchestrator
-├── TRADING_QUICKSTART.md       # Quick reference
-└── sandbox/                    # Docker environment
+│   │   │   ├── grammar.py         # Abstract symbolic language
+│   │   │   ├── interpreter.py     # Strategy parser & executor
+│   │   │   └── mutator.py         # Random mutation logic
+│   │   ├── storage/
+│   │   │   ├── cell_repository.py # Cell database interface
+│   │   │   └── models.py          # Cell/Phenotype data models
+│   │   ├── analysis/
+│   │   │   ├── pattern_discovery.py    # LLM pattern analysis
+│   │   │   └── mutation_proposer.py    # Intelligent mutations
+│   │   ├── data/
+│   │   │   └── hyperliquid_fetcher.py  # Market data API
+│   │   ├── trading/
+│   │   │   └── trading_evolution.py    # Evolution orchestration
+│   │   └── benchmarks/
+│   │       └── trading_benchmarks/
+│   │           └── trading_benchmark.py # Fitness evaluation
+│   └── tests/                      # Comprehensive test suite
+├── experiments/                    # Petri dish databases
+│   └── <dish_name>/
+│       └── evolution/
+│           └── cells.db           # Cell lineage & phenotypes
+├── trading_cli.py                 # Main CLI interface
+├── trading_api.py                 # Web dashboard server
+├── trade                          # Convenience wrapper script
+└── cursor_docs/                   # Documentation
+    ├── DSL_DESIGN.md
+    ├── EVOLUTIONARY_LOOP.md
+    └── DOCKER_COMMANDS.md
 ```
 
-### Results Organization
+### Database Schema
 
-```
-results/run_{id}/
-├── metadata.json          # Experiment metadata
-└── agent_{i}/             # Generation i results
-    ├── agent_code/        # Agent/DSL code for this generation
-    ├── benchmarks/
-    │   └── trading/
-    │       ├── results.jsonl         # Fitness scores
-    │       │   # {"problem_id": "trend_following_1", "score": 199.88, ...}
-    │       ├── trend_following_1/
-    │       │   └── answer/
-    │       │       └── answer.txt    # Generated DSL strategy
-    │       └── traces/               # Detailed execution traces
-    └── meta_improvement/  # (If using meta-agent mode)
+**Cells Table:**
+- `cell_id` - Unique identifier
+- `generation` - Generation number
+- `parent_cell_id` - Parent cell (null for Gen 0)
+- `dsl_genome` - Strategy DSL string
+- `fitness` - Aggregate fitness score
+- `status` - 'online' (survived) or 'offline' (died)
+- `dish_name` - Experiment name
+
+**Phenotypes Table:**
+- Multi-timeframe performance data
+- Per-timeframe profit, trades, win rate
+- Sharpe ratio, max drawdown
+
+**Failed Mutations Table:**
+- Tracks unsuccessful mutations
+- Helps LLM avoid repeated failures
+
+## Commands Reference
+
+```bash
+# Evolution
+./trade evolve -g 100 -d my_dish          # Pure genetic evolution
+./trade evolve -g 1000 -f 50.0            # Run until fitness hits $50
+
+# LLM-Guided Learning
+./trade learn -n 10 -d smart_dish         # Cloud LLM
+USE_LOCAL_LLM=true ./trade learn -n 100   # Local LLM (free!)
+
+# Testing
+./trade test --strategy "IF ..."          # Test single strategy
+./trade demo                               # Demo mode
+
+# Database Queries
+./trade query top-cells -l 10             # Top performers
+./trade query lineage -c 42               # Cell ancestry
+./trade query failed-mutations -c 42      # What didn't work
+
+# Monitoring
+./trade list-dishes                        # List experiments
+./trade web                                # Start web UI
+
+# Help
+./trade --help                             # Show all commands
+./trade evolve --help                      # Command-specific help
 ```
 
-**Key files:**
-- `answer.txt` - The DSL strategy that was tested
-- `results.jsonl` - Fitness score and survival status
-- Higher generation numbers (`agent_5/`, `agent_10/`) contain evolved strategies
+## Research Directions
+
+### Evolution & Learning
+- [ ] **Crossover breeding**: Combine strategies from multiple cell lineages
+- [ ] **Adaptive mutation rates**: Increase diversity when stuck
+- [ ] **Multi-objective optimization**: Balance profit, risk, Sharpe ratio
+- [ ] **Population diversity metrics**: Maintain genetic variety
+
+### LLM Integration
+- [x] Pattern discovery across cell populations ✓
+- [x] Intelligent mutation proposals ✓
+- [x] Local LLM support (Ollama) ✓
+- [ ] Strategy explanation and decomposition
+- [ ] Transfer learning across markets
+- [ ] Self-modifying DSL grammar
+
+### Market Integration
+- [x] Multi-timeframe backtesting ✓
+- [x] Real market data (Hyperliquid API) ✓
+- [ ] Multi-asset evolution (BTC, ETH, SOL, PURR)
+- [ ] Live paper trading integration
+- [ ] Real capital deployment (at your own risk!)
+
+### System Improvements
+- [x] Cell-based storage with lineage ✓
+- [x] Petri dish experiments ✓
+- [x] Web dashboard ✓
+- [ ] Distributed evolution (multiple workers)
+- [ ] GPU-accelerated backtesting
+- [ ] Advanced risk metrics (CVaR, Kelly criterion)
 
 ## Documentation
 
-Comprehensive guides in [`cursor_docs/`](cursor_docs/):
+Detailed guides in [`cursor_docs/`](cursor_docs/):
 
-- **[DSL_DESIGN.md](cursor_docs/DSL_DESIGN.md)** - Why abstract symbols? Why no technical indicators?
-- **[EVOLUTIONARY_LOOP.md](cursor_docs/EVOLUTIONARY_LOOP.md)** - How fitness evaluation and natural selection work
-- **[RUNNING_EVOLUTION.md](cursor_docs/RUNNING_EVOLUTION.md)** - Detailed usage instructions and monitoring
-- **[TROUBLESHOOTING.md](cursor_docs/TROUBLESHOOTING.md)** - Common issues and solutions
-- **[WEB_INTERFACE.md](cursor_docs/WEB_INTERFACE.md)** - Real-time visualization guide
-- **[TRADING_QUICKSTART.md](TRADING_QUICKSTART.md)** - Quick reference for all trading modes
+- **[DSL_DESIGN.md](cursor_docs/DSL_DESIGN.md)** - Philosophy: Why abstract symbols?
+- **[EVOLUTIONARY_LOOP.md](cursor_docs/EVOLUTIONARY_LOOP.md)** - How evolution works
+- **[DOCKER_COMMANDS.md](cursor_docs/DOCKER_COMMANDS.md)** - Docker reference
+- **[TESTING.md](cursor_docs/TESTING.md)** - Testing guide
 
 ## Warning ⚠️
 
 **This is experimental software that executes trading strategies. It is for research and educational purposes only.**
 
-- The system uses historical backtesting, not real trading
+- Uses historical backtesting, not real trading
 - No guarantees of profitability
 - Evolved strategies may overfit to training data
-- Use at your own risk if deploying with real capital
 - Past performance does not indicate future results
+- Use at your own risk if deploying with real capital
 
 **The "survival" mechanism is a research metaphor for economic constraints, not financial advice.**
 
@@ -329,12 +416,12 @@ Comprehensive guides in [`cursor_docs/`](cursor_docs/):
 
 This "Money Making Lifeforms" fork explores evolutionary trading with abstract symbolic languages:
 
-```
+```bibtex
 @misc{money_making_lifeforms_2025,
     title={Money Making Lifeforms: Evolutionary Trading with Economic Survival Constraints},
     author={[Your Name]},
     year={2025},
-    note={Fork of SICA with trading evolution and abstract symbolic DSL},
+    note={Fork of SICA with cell-based evolution and LLM-guided learning},
     url={https://github.com/YOUR_USERNAME/money_making_lifeforms}
 }
 ```
@@ -343,7 +430,7 @@ This "Money Making Lifeforms" fork explores evolutionary trading with abstract s
 
 Based on the SICA (Self-Improving Coding Agent) framework:
 
-```
+```bibtex
 @inproceedings{
     robeyns2025sica,
     title={{SICA} A Self-Improving Coding Agent},
