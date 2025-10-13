@@ -423,13 +423,13 @@ async def run_trading_learn(request: LearnRequest):
                 cwd=str(Path.cwd())  # Run from project root
             )
 
-        dish_msg = f" on dish '{dish}'" if dish else ""
+        dish_msg = f" on dish '{request.dish}'" if request.dish else ""
         return {
             "status": "success",
-            "message": f"Trading-learn started with {iterations} iterations (local LLM){dish_msg}",
+            "message": f"Trading-learn started with {request.iterations} iterations (local LLM){dish_msg}",
             "pid": current_process.pid,
-            "dish": dish,
-            "iterations": iterations,
+            "dish": request.dish,
+            "iterations": request.iterations,
             "output_file": str(process_output_file)
         }
     except Exception as e:

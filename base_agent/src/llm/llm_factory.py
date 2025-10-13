@@ -38,6 +38,7 @@ async def analyze_cell_with_llm(
     cell_context: str,
     system_prompt: str = "You are an expert trading strategy analyst.",
     use_json: bool = True,
+    temperature: float = None,
 ) -> Dict[str, Any] | str:
     """
     Analyze a trading cell using either local or cloud LLM.
@@ -46,10 +47,15 @@ async def analyze_cell_with_llm(
         cell_context: The context about the cell to analyze
         system_prompt: System prompt for the LLM
         use_json: Whether to expect JSON response
+        temperature: Temperature for LLM sampling (default: 0.3 for JSON, 0.7 otherwise)
 
     Returns:
         Dict if use_json=True, str otherwise
     """
+    # Default temperature based on use_json if not provided
+    if temperature is None:
+        temperature = 0.3 if use_json else 0.7
+
     client = get_llm_client()
 
     if client is not None:
@@ -58,13 +64,13 @@ async def analyze_cell_with_llm(
             return await client.generate_with_json(
                 prompt=cell_context,
                 system=system_prompt,
-                temperature=0.3,
+                temperature=temperature,
             )
         else:
             return await client.generate(
                 prompt=cell_context,
                 system=system_prompt,
-                temperature=0.7,
+                temperature=temperature,
             )
     else:
         # Use Anthropic API (via main agent system)
@@ -81,7 +87,7 @@ async def analyze_cell_with_llm(
             response = await anthropic.messages.create(
                 model="claude-3-5-sonnet-20241022",
                 max_tokens=4096,
-                temperature=0.3 if use_json else 0.7,
+                temperature=temperature,
                 system=system_prompt,
                 messages=messages,
             )
@@ -89,7 +95,7 @@ async def analyze_cell_with_llm(
             response = await anthropic.messages.create(
                 model="claude-3-5-sonnet-20241022",
                 max_tokens=4096,
-                temperature=0.3 if use_json else 0.7,
+                temperature=temperature,
                 messages=messages,
             )
 

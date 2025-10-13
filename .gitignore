@@ -173,3 +173,6 @@ cursor_docs/.claudeignore/
 cursor_docs/reference/
 docs/
 base_agent/README.md
+
+# Internal Docker web servers - not used by main application
+base_agent/src/web_server*/

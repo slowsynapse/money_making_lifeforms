@@ -19,6 +19,7 @@ async def propose_intelligent_mutation(
     patterns: dict,
     repo: CellRepository,
     use_json: bool = True,
+    temperature: float = 0.5,
 ) -> Optional[Dict[str, Any]]:
     """
     Use LLM to propose an intelligent mutation to a cell.
@@ -44,6 +45,9 @@ async def propose_intelligent_mutation(
     """
     # Fetch cell phenotypes for performance analysis
     phenotypes = repo.get_phenotypes_for_cell(cell.cell_id)
+
+    # Calculate total trades for trading activity guidance
+    total_trades = sum(p.total_trades for p in phenotypes) if phenotypes else 0
 
     # Find which patterns this cell uses
     cell_patterns = []
@@ -113,14 +117,33 @@ DSL Syntax Available:
 - Parameters: Lookback periods (e.g., DELTA(20) = close price 20 periods ago)
 - Operators: >, <, >=, <=, ==, !=
 - Arithmetic: +, -, *, / (e.g., DELTA(0) - DELTA(20))
+- Logic: AND, OR, NOT (e.g., IF A > B AND C < D THEN BUY ELSE SELL)
+- Parentheses: Group conditions (e.g., IF (A > B OR C < D) AND E > F THEN BUY ELSE SELL)
 - Actions: BUY, SELL, HOLD
 
+IMPORTANT: Multi-rule strategies use NEWLINES to separate rules. Do NOT use "ELSE IF" - it's not valid syntax.
+
+CRITICAL Trading Activity Rules:
+- Parent strategy generated {total_trades} trades across all timeframes
+- Mutations MUST generate trades to be tested effectively
+- Avoid strategies where ALL conditions lead to HOLD - this kills trading
+- If you add HOLD actions, ensure at least one branch actively BUYs or SELLs
+- Zero-trade strategies get penalized $-45 for inactivity
+- Aim to maintain or improve trading activity level
+
 Example strategies:
-- "IF DELTA(0) > DELTA(20) THEN BUY ELSE SELL"  (momentum)
+- "IF DELTA(0) > DELTA(20) THEN BUY ELSE SELL"  (simple momentum)
 - "IF GAMMA(50) * 1.02 < DELTA(0) THEN BUY ELSE HOLD"  (support breakout)
+- "IF DELTA(0) > DELTA(20) AND EPSILON() > 1000 THEN BUY ELSE SELL"  (momentum with volume)
+- "IF DELTA(0) < GAMMA(50) OR DELTA(0) > BETA(50) THEN SELL ELSE BUY"  (reversal at extremes)
+- "IF NOT DELTA() < DELTA(20) THEN BUY ELSE HOLD"  (negation for clarity)
+
+Multi-rule examples (newline-separated):
+- "IF DELTA(0) > DELTA(20) THEN BUY ELSE HOLD\\nIF EPSILON() > 1000 THEN SELL ELSE HOLD"  (two rules)
+- "IF GAMMA(14) >= BETA(20) THEN BUY ELSE HOLD\\nIF DELTA(0) < GAMMA(50) THEN SELL ELSE HOLD"  (momentum + support)
 
 Propose a mutation that:
-1. Is syntactically valid DSL
+1. Is syntactically valid DSL (use \\n for multiple rules, NOT "ELSE IF")
 2. Is DIFFERENT from the current strategy
 3. Addresses a weakness or exploits a strength
 4. Has a clear rationale
@@ -134,11 +157,12 @@ Return JSON:
 }}"""
 
     try:
-        # Call LLM
+        # Call LLM with temperature control for diversity
         response = await analyze_cell_with_llm(
             cell_context=prompt,
             system_prompt="You are an expert trading strategist. Propose intelligent, targeted mutations to trading strategies.",
             use_json=use_json,
+            temperature=temperature,
         )
 
         if not use_json or not isinstance(response, dict):
@@ -206,13 +230,18 @@ async def batch_propose_mutations(
         if len(proposals) >= max_proposals:
             break
 
-        print(f"\n  Cell {i+1}/{len(cells)}: #{cell.cell_id} (${cell.fitness:.2f})")
+        # Vary temperature across batch for diversity
+        # Start conservative (0.3), gradually increase creativity (0.8)
+        temperature = 0.3 + (i / max(len(cells) - 1, 1)) * 0.5
 
-        proposal = await propose_intelligent_mutation(cell, patterns, repo)
+        print(f"\n  Cell {i+1}/{len(cells)}: #{cell.cell_id} (${cell.fitness:.2f}) [T={temperature:.2f}]")
+
+        proposal = await propose_intelligent_mutation(cell, patterns, repo, temperature=temperature)
 
         if proposal:
             proposal["cell_id"] = cell.cell_id
             proposal["parent_fitness"] = cell.fitness
+            proposal["temperature"] = temperature
             proposals.append(proposal)
 
     print(f"\n✓ Generated {len(proposals)} valid mutation proposals")

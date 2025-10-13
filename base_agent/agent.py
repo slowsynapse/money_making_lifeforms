@@ -15,7 +15,9 @@ import logging
 from pathlib import Path
 
 from .src.events import EventBus
-from .src.web_server import run_server
+# Web server moved to "not in use" - internal Docker visualization only
+# Main APIs are at root level: trading_api.py (port 8081), sica_api.py (port 8082)
+# from .src.web_server import run_server
 from .src.llm.metering import get_total_cost, get_total_usage, budget_info
 from .src.callgraph.manager import CallGraphManager
 from .src.callgraph.reporting import generate_execution_report, generate_execution_tree
@@ -283,8 +285,10 @@ class Agent:
         event_bus.subscribe(set(EventType), log_to_stdout)
 
         # Start the visualisation of the oversight
-        if self.server_enabled:
-            self.web_server_task = asyncio.create_task(run_server())
+        # NOTE: Internal web server disabled - moved to "not in use"
+        # Use root-level APIs instead: trading_api.py (8081), sica_api.py (8082)
+        # if self.server_enabled:
+        #     self.web_server_task = asyncio.create_task(run_server())
 
         try:
             # Create the main agent instance
@@ -419,13 +423,15 @@ class Agent:
             # await event_bus.save_state(self.logdir)
 
             # Cancel the web server task
-            if self.server_enabled and self.web_server_task:
-                self.web_server_task.cancel()
-                try:
-                    await self.web_server_task
-                except asyncio.CancelledError:
-                    pass
-                self.web_server_task = None
+            # NOTE: Internal web server disabled - moved to "not in use"
+            # if self.server_enabled and self.web_server_task:
+            #     self.web_server_task.cancel()
+            #     try:
+            #         await self.web_server_task
+            #     except asyncio.CancelledError:
+            #         pass
+            #     self.web_server_task = None
+            pass  # Placeholder for removed web server shutdown
 
     async def create_report(self):
         """

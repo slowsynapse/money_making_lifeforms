@@ -111,7 +111,7 @@ class OllamaClient:
         text = await self.generate(prompt, system=system, temperature=temperature, **kwargs)
 
         # Try to extract JSON from response
-        # Sometimes LLMs wrap JSON in markdown code blocks
+        # Sometimes LLMs wrap JSON in markdown code blocks or add explanatory text
         text = text.strip()
 
         # Remove markdown code blocks if present
@@ -127,6 +127,42 @@ class OllamaClient:
         try:
             return json.loads(text)
         except json.JSONDecodeError as e:
+            # Try to extract just the JSON object/array
+            # Look for first { or [ and matching closing brace
+            start_obj = text.find('{')
+            start_arr = text.find('[')
+
+            start_idx = -1
+            if start_obj >= 0 and start_arr >= 0:
+                start_idx = min(start_obj, start_arr)
+            elif start_obj >= 0:
+                start_idx = start_obj
+            elif start_arr >= 0:
+                start_idx = start_arr
+
+            if start_idx >= 0:
+                # Find matching closing brace
+                open_char = text[start_idx]
+                close_char = '}' if open_char == '{' else ']'
+                depth = 0
+                end_idx = -1
+
+                for i in range(start_idx, len(text)):
+                    if text[i] == open_char:
+                        depth += 1
+                    elif text[i] == close_char:
+                        depth -= 1
+                        if depth == 0:
+                            end_idx = i + 1
+                            break
+
+                if end_idx > start_idx:
+                    json_text = text[start_idx:end_idx]
+                    try:
+                        return json.loads(json_text)
+                    except json.JSONDecodeError:
+                        pass  # Fall through to original error
+
             raise ValueError(
                 f"Failed to parse JSON from LLM response. "
                 f"Error: {e}\n"

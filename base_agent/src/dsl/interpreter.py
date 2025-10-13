@@ -5,7 +5,7 @@ from collections import Counter
 from .grammar import (
     Indicator, Operator, Action, Condition, Rule, DslProgram, AggregationMode,
     ArithmeticOp, IndicatorValue, BinaryOp, FunctionCall, AggregationFunc, Expression,
-    CompoundCondition, LogicalOp, ConditionType, Timeframe
+    CompoundCondition, LogicalOp, ConditionType, Timeframe, Literal
 )
 
 class DslInterpreter:
@@ -14,26 +14,25 @@ class DslInterpreter:
     """
     def __init__(self, aggregation_mode: AggregationMode = AggregationMode.MAJORITY):
         # Example DSL strings:
-        # Single rule: IF ALPHA(10) > BETA(50) THEN BUY ELSE SELL
+        # V1 (Simple): IF ALPHA(10) > BETA(50) THEN BUY ELSE SELL
+        # V2 (Compound): IF ALPHA() > GAMMA(100) AND BETA(0) > DELTA(50) THEN SELL ELSE BUY
+        # V2 (NOT): IF NOT OMEGA() < 0 THEN BUY ELSE SELL
+        # V2 (Nested): IF (ALPHA() > GAMMA(100) OR BETA() > DELTA(50)) AND EPSILON() > 1000 THEN BUY ELSE HOLD
         # Multiple rules (newline or semicolon separated):
         #   IF ALPHA(10) > BETA(50) THEN BUY ELSE SELL
         #   IF GAMMA(20) <= OMEGA() THEN SELL ELSE HOLD
-        #   IF DELTA(5) == PSI(100) THEN HOLD ELSE BUY
-        # Supports both parameterized (N) and parameterless () symbols
-        self.rule_pattern = re.compile(
-            r"IF\s+"
-            r"(\w+)\((\d*)\)\s*"          # Indicator 1 and optional param 1
-            r"([><]=?|==)\s*"             # Operator (including ==)
-            r"(\w+)\((\d*)\)\s*"          # Indicator 2 and optional param 2
-            r"THEN\s+(\w+)\s*"            # True Action
-            r"ELSE\s+(\w+)"               # False Action
-        )
+
         self.aggregation_mode = aggregation_mode
+
+        # Token state for recursive descent parser
+        self.tokens = []
+        self.current_token_index = 0
 
     def parse(self, dsl_string: str) -> DslProgram | None:
         """
-        Parses a DSL string into a structured program.
+        Parses a DSL string into a structured program using recursive descent parser.
         Supports multiple rules separated by newlines or semicolons.
+        Supports compound conditions with AND/OR/NOT and parentheses.
         Returns None if parsing fails.
         """
         # Split on newlines and semicolons to get individual rules
@@ -44,36 +43,320 @@ class DslInterpreter:
 
         rules = []
         for rule_str in rule_strings:
-            match = self.rule_pattern.match(rule_str)
-            if not match:
-                return None  # If any rule fails to parse, fail the whole program
-
             try:
-                ind1_str, param1_str, op_str, ind2_str, param2_str, true_action_str, false_action_str = match.groups()
-
-                # Handle empty params (for symbols like OMEGA())
-                param1 = int(param1_str) if param1_str else 0
-                param2 = int(param2_str) if param2_str else 0
-
-                condition = Condition(
-                    indicator1=Indicator[ind1_str],
-                    param1=param1,
-                    operator=self._string_to_operator(op_str),
-                    indicator2=Indicator[ind2_str],
-                    param2=param2
-                )
-
-                rule = Rule(
-                    condition=condition,
-                    true_action=Action[true_action_str],
-                    false_action=Action[false_action_str]
-                )
+                rule = self._parse_rule(rule_str)
+                if rule is None:
+                    return None  # If any rule fails to parse, fail the whole program
                 rules.append(rule)
-            except (KeyError, ValueError):
-                # Invalid indicator, operator, or action name
-                return None
+            except Exception:
+                return None  # Parse error
 
         return rules if rules else None
+
+    def _tokenize(self, text: str) -> list[tuple[str, str]]:
+        """
+        Tokenize a DSL rule string.
+        Returns list of (token_type, token_value) tuples.
+        """
+        token_spec = [
+            ('IF', r'\bIF\b'),
+            ('THEN', r'\bTHEN\b'),
+            ('ELSE', r'\bELSE\b'),
+            ('AND', r'\bAND\b'),
+            ('OR', r'\bOR\b'),
+            ('NOT', r'\bNOT\b'),
+            ('ACTION', r'\b(BUY|SELL|HOLD)\b'),
+            ('AGGREGATION', r'\b(AVG|SUM|MAX|MIN|STD)(?:_(1H|4H|1D))?\('),
+            ('INDICATOR', r'\b(ALPHA|BETA|GAMMA|DELTA|EPSILON|ZETA|OMEGA|PSI)(?:_(1H|4H|1D))?\('),
+            ('OPERATOR', r'(>=|<=|==|>|<)'),
+            ('ARITH_OP', r'[+\-*/]'),
+            ('NUMBER', r'\d+'),
+            ('LPAREN', r'\('),
+            ('RPAREN', r'\)'),
+            ('COMMA', r','),
+            ('WHITESPACE', r'\s+'),
+        ]
+
+        tok_regex = '|'.join(f'(?P<{name}>{pattern})' for name, pattern in token_spec)
+        tokens = []
+
+        for match in re.finditer(tok_regex, text):
+            kind = match.lastgroup
+            value = match.group()
+            if kind != 'WHITESPACE':  # Skip whitespace
+                tokens.append((kind, value))
+
+        return tokens
+
+    def _parse_rule(self, rule_str: str) -> Rule | None:
+        """Parse a single rule: IF <condition> THEN <action> ELSE <action>"""
+        self.tokens = self._tokenize(rule_str)
+        self.current_token_index = 0
+
+        if not self._consume('IF'):
+            # DEBUG: print(f"Failed to consume IF")
+            return None
+
+        condition = self._parse_condition()
+        if condition is None:
+            # DEBUG: print(f"Failed to parse condition, at token index {self.current_token_index}/{len(self.tokens)}")
+            # DEBUG: if self.current_token_index < len(self.tokens):
+            # DEBUG:     print(f"Current token: {self.tokens[self.current_token_index]}")
+            return None
+
+        if not self._consume('THEN'):
+            # DEBUG: print(f"Failed to consume THEN, at token index {self.current_token_index}/{len(self.tokens)}")
+            # DEBUG: if self.current_token_index < len(self.tokens):
+            # DEBUG:     print(f"Current token: {self.tokens[self.current_token_index]}")
+            return None
+
+        true_action = self._parse_action()
+        if true_action is None:
+            # DEBUG: print(f"Failed to parse true_action")
+            return None
+
+        if not self._consume('ELSE'):
+            # DEBUG: print(f"Failed to consume ELSE")
+            return None
+
+        false_action = self._parse_action()
+        if false_action is None:
+            # DEBUG: print(f"Failed to parse false_action")
+            return None
+
+        # Should be at end of tokens
+        if self.current_token_index != len(self.tokens):
+            # DEBUG: print(f"Extra tokens remaining: index {self.current_token_index}/{len(self.tokens)}")
+            # DEBUG: print(f"Remaining: {self.tokens[self.current_token_index:]}")
+            return None
+
+        return Rule(condition=condition, true_action=true_action, false_action=false_action)
+
+    def _current_token(self) -> tuple[str, str] | None:
+        """Get current token without advancing."""
+        if self.current_token_index < len(self.tokens):
+            return self.tokens[self.current_token_index]
+        return None
+
+    def _consume(self, expected_type: str) -> str | None:
+        """Consume a token of the expected type and return its value."""
+        token = self._current_token()
+        if token and token[0] == expected_type:
+            self.current_token_index += 1
+            return token[1]
+        return None
+
+    def _parse_action(self) -> Action | None:
+        """Parse an action: BUY | SELL | HOLD"""
+        action_str = self._consume('ACTION')
+        if action_str:
+            try:
+                return Action[action_str]
+            except KeyError:
+                return None
+        return None
+
+    def _parse_condition(self) -> ConditionType | None:
+        """Parse a condition (entry point for condition grammar)."""
+        return self._parse_or_condition()
+
+    def _parse_or_condition(self) -> ConditionType | None:
+        """Parse OR condition: and_condition (OR and_condition)*"""
+        left = self._parse_and_condition()
+        if left is None:
+            return None
+
+        while self._consume('OR'):
+            right = self._parse_and_condition()
+            if right is None:
+                return None
+            left = CompoundCondition(op=LogicalOp.OR, left=left, right=right)
+
+        return left
+
+    def _parse_and_condition(self) -> ConditionType | None:
+        """Parse AND condition: not_condition (AND not_condition)*"""
+        left = self._parse_not_condition()
+        if left is None:
+            return None
+
+        while self._consume('AND'):
+            right = self._parse_not_condition()
+            if right is None:
+                return None
+            left = CompoundCondition(op=LogicalOp.AND, left=left, right=right)
+
+        return left
+
+    def _parse_not_condition(self) -> ConditionType | None:
+        """Parse NOT condition: NOT primary_condition | primary_condition"""
+        if self._consume('NOT'):
+            inner = self._parse_primary_condition()
+            if inner is None:
+                return None
+            return CompoundCondition(op=LogicalOp.NOT, left=inner)
+
+        return self._parse_primary_condition()
+
+    def _parse_primary_condition(self) -> ConditionType | None:
+        """Parse primary condition: ( condition ) | simple_condition"""
+        # Check for parenthesized condition
+        if self._consume('LPAREN'):
+            condition = self._parse_condition()
+            if condition is None or not self._consume('RPAREN'):
+                return None
+            return condition
+
+        # Otherwise, parse simple condition: expression operator expression
+        return self._parse_simple_condition()
+
+    def _parse_simple_condition(self) -> Condition | None:
+        """Parse simple condition: expression operator expression"""
+        left_expr = self._parse_expression()
+        if left_expr is None:
+            return None
+
+        # Parse operator
+        op_str = self._consume('OPERATOR')
+        if op_str is None:
+            return None
+
+        operator = self._string_to_operator(op_str)
+
+        right_expr = self._parse_expression()
+        if right_expr is None:
+            return None
+
+        return Condition(operator=operator, left=left_expr, right=right_expr)
+
+    def _parse_expression(self) -> Expression | None:
+        """Parse expression: can be indicator, aggregation, or arithmetic operation."""
+        # For now, parse a simple term (no arithmetic operators yet in this version)
+        # We'll support arithmetic in a future update if needed
+        return self._parse_term()
+
+    def _parse_term(self) -> Expression | None:
+        """Parse a term: number literal, indicator, or aggregation function."""
+        token = self._current_token()
+        if token is None:
+            return None
+
+        # Check for number literal
+        if token[0] == 'NUMBER':
+            num_str = self._consume('NUMBER')
+            num_value = float(num_str)
+            return Literal(value=num_value)
+
+        # Check for aggregation function
+        if token[0] == 'AGGREGATION':
+            return self._parse_aggregation()
+
+        # Check for indicator
+        if token[0] == 'INDICATOR':
+            return self._parse_indicator()
+
+        return None
+
+    def _parse_indicator(self) -> IndicatorValue | None:
+        """Parse indicator: INDICATOR_TIMEFRAME(param) or INDICATOR(param) or INDICATOR()"""
+        token = self._consume('INDICATOR')
+        if token is None:
+            return None
+
+        # Extract indicator name and optional timeframe
+        # Format: "ALPHA_1H(" or "ALPHA("
+        match = re.match(r'(\w+)(?:_(\w+))?\(', token)
+        if not match:
+            return None
+
+        indicator_name = match.group(1)
+        timeframe_str = match.group(2)
+
+        # Parse optional parameter (may be empty)
+        param_str = self._consume('NUMBER')
+        param = int(param_str) if param_str else 0
+
+        # Consume closing paren (required)
+        if not self._consume('RPAREN'):
+            return None
+
+        # Parse timeframe
+        timeframe = Timeframe.DEFAULT
+        if timeframe_str:
+            try:
+                timeframe = Timeframe[f'TF_{timeframe_str}']
+            except KeyError:
+                return None
+
+        # Parse indicator
+        try:
+            indicator = Indicator[indicator_name]
+        except KeyError:
+            return None
+
+        return IndicatorValue(indicator=indicator, param=param, timeframe=timeframe)
+
+    def _parse_aggregation(self) -> FunctionCall | None:
+        """Parse aggregation: FUNC_TIMEFRAME(INDICATOR, window) or FUNC(INDICATOR, window)"""
+        token = self._consume('AGGREGATION')
+        if token is None:
+            return None
+
+        # Extract function name and optional timeframe
+        # Format: "AVG_1H(" or "AVG("
+        match = re.match(r'(\w+)(?:_(\w+))?\(', token)
+        if not match:
+            return None
+
+        func_name = match.group(1)
+        timeframe_str = match.group(2)
+
+        # Parse indicator name (should be just the name, no parens)
+        indicator_token = self._current_token()
+        if indicator_token is None or indicator_token[0] != 'INDICATOR':
+            return None
+
+        # Extract just the indicator name (remove the opening paren)
+        indicator_match = re.match(r'(\w+)(?:_\w+)?\(', indicator_token[1])
+        if not indicator_match:
+            return None
+
+        indicator_name = indicator_match.group(1)
+        self.current_token_index += 1  # Consume the INDICATOR token
+
+        # We don't expect a param here, but if there's a number, it's an error in this context
+        # However, the tokenizer saw "INDICATOR(" so we don't consume RPAREN yet
+
+        # Consume comma
+        if not self._consume('COMMA'):
+            return None
+
+        # Parse window size
+        window_str = self._consume('NUMBER')
+        if window_str is None:
+            return None
+        window = int(window_str)
+
+        # Consume closing paren
+        if not self._consume('RPAREN'):
+            return None
+
+        # Parse timeframe
+        timeframe = Timeframe.DEFAULT
+        if timeframe_str:
+            try:
+                timeframe = Timeframe[f'TF_{timeframe_str}']
+            except KeyError:
+                return None
+
+        # Parse function and indicator
+        try:
+            func = AggregationFunc[func_name]
+            indicator = Indicator[indicator_name]
+        except KeyError:
+            return None
+
+        return FunctionCall(func=func, indicator=indicator, window=window, timeframe=timeframe)
 
     def _string_to_operator(self, op_str: str) -> Operator:
         for op in Operator:
@@ -248,17 +531,20 @@ class DslInterpreter:
         current_index: int
     ) -> float:
         """
-        Evaluate an expression (simple indicator, arithmetic operation, or aggregation function).
+        Evaluate an expression (literal, simple indicator, arithmetic operation, or aggregation function).
 
         Args:
-            expression: IndicatorValue, BinaryOp, or FunctionCall
+            expression: Literal, IndicatorValue, BinaryOp, or FunctionCall
             market_data: DataFrame (single timeframe) or dict of DataFrames (multi-timeframe)
             current_index: Current row index
 
         Returns:
             Float value of the expression
         """
-        if isinstance(expression, IndicatorValue):
+        if isinstance(expression, Literal):
+            # Literal value - return it directly
+            return float(expression.value)
+        elif isinstance(expression, IndicatorValue):
             # Simple indicator - get its value directly
             return self._get_indicator_value(
                 expression.indicator,
@@ -438,7 +724,13 @@ class DslInterpreter:
 
     def _expression_to_string(self, expr: Expression) -> str:
         """Convert an expression to its string representation."""
-        if isinstance(expr, IndicatorValue):
+        if isinstance(expr, Literal):
+            # Literal number
+            # Format as integer if it's a whole number, otherwise as float
+            if expr.value == int(expr.value):
+                return str(int(expr.value))
+            return str(expr.value)
+        elif isinstance(expr, IndicatorValue):
             # Simple indicator with optional timeframe
             ind = expr.indicator.value
             param = f"({expr.param})" if expr.param else "()"

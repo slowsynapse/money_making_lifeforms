@@ -54,6 +54,11 @@ class Timeframe(Enum):
     DEFAULT = None  # Use default timeframe from context
 
 @dataclass
+class Literal:
+    """A literal numeric value (e.g., 0, 100, 1000)."""
+    value: float
+
+@dataclass
 class IndicatorValue:
     """A single indicator with its parameter and optional timeframe (e.g., DELTA_1H(10))."""
     indicator: Indicator
@@ -63,9 +68,9 @@ class IndicatorValue:
 @dataclass
 class BinaryOp:
     """Binary arithmetic operation (e.g., DELTA(0) / DELTA(20))."""
-    left: Union['BinaryOp', 'IndicatorValue', 'FunctionCall']
+    left: Union['BinaryOp', 'IndicatorValue', 'FunctionCall', 'Literal']
     op: ArithmeticOp
-    right: Union['BinaryOp', 'IndicatorValue', 'FunctionCall']
+    right: Union['BinaryOp', 'IndicatorValue', 'FunctionCall', 'Literal']
 
 @dataclass
 class FunctionCall:
@@ -75,8 +80,8 @@ class FunctionCall:
     window: int  # Lookback period for aggregation
     timeframe: Timeframe = Timeframe.DEFAULT  # DSL V2 Phase 4: Multi-timeframe support
 
-# Expression type can be an indicator, binary operation, or function call
-Expression = Union[IndicatorValue, BinaryOp, FunctionCall]
+# Expression type can be a literal, indicator, binary operation, or function call
+Expression = Union[Literal, IndicatorValue, BinaryOp, FunctionCall]
 
 @dataclass
 class Condition:

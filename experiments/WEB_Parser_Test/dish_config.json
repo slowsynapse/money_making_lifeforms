@@ -1,0 +1,15 @@
+{
+  "dish_name": "WEB_Parser_Test",
+  "created_at": "2025-10-12T11:57:20.443434",
+  "symbol": "WEB",
+  "initial_capital": 1000.0,
+  "mutation_rate": "standard",
+  "dsl_version": "v2_phase1",
+  "description": "Evolution run: 100 generations, goal $50.0",
+  "total_generations": 100,
+  "total_cells": 100,
+  "total_runs": 1,
+  "best_fitness": 11.06005940620912,
+  "best_cell_name": "WEB_Parser_Test_g91_c001",
+  "last_updated": "2025-10-12T11:57:29.588738"
+}

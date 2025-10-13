@@ -15,7 +15,6 @@ import random
 from pathlib import Path
 
 from ..events import EventBus
-from ..web_server import run_server
 from ..callgraph.manager import CallGraphManager
 from ..types.event_types import EventType, Event
 
@@ -203,13 +202,8 @@ async def run_trading_learn(
     print(f"\n🧠 LLM will analyze cells and propose {iterations} intelligent mutations.")
     print("💡 Requires cell database from prior trading-evolve run.\n")
 
-    # Start web server if enabled AND not already running
-    # When called from web API, server is already running
-    web_server_task = None
-    start_new_server = server_enabled and not hasattr(EventBus, '_instance')
-    if start_new_server:
-        print(f"🌐 Starting web visualization server on http://localhost:8080")
-        web_server_task = asyncio.create_task(run_server())
+    # Note: Web server (trading_api.py on port 8081) is managed externally
+    # EventBus and CallGraphManager work independently of web server lifecycle
 
     try:
         from ..benchmarks.trading_benchmarks.trading_benchmark import TradingBenchmark
@@ -633,25 +627,6 @@ async def run_trading_learn(
         if callgraph:
             await callgraph.fail_agent("trading-learn", str(e))
 
-    finally:
-        # Keep web server running if it was started
-        if web_server_task:
-            print(f"\n🌐 Web server still running at http://localhost:8080")
-            print(f"📊 View results in the 'Evolution Cells' tab")
-            print(f"⌨️  Press Ctrl+C to stop the server and exit")
-
-            try:
-                # Wait indefinitely until user presses Ctrl+C
-                await web_server_task
-            except (KeyboardInterrupt, asyncio.CancelledError):
-                print(f"\n🌐 Shutting down web visualization server...")
-                web_server_task.cancel()
-                try:
-                    await web_server_task
-                except asyncio.CancelledError:
-                    pass
-                print(f"✓ Web server shutdown complete")
-
 async def run_trading_evolve(
     generations: int,
     workdir: Path,
@@ -687,11 +662,8 @@ async def run_trading_evolve(
     print(f"🎯 Goal: Achieve fitness of ${fitness_goal:.2f}")
     print("💰 FREE after Gen 0! No LLM costs, just natural selection.\n")
 
-    # Start web server if enabled
-    web_server_task = None
-    if server_enabled:
-        print(f"🌐 Starting web visualization server on http://localhost:8080")
-        web_server_task = asyncio.create_task(run_server())
+    # Note: Web server (trading_api.py on port 8081) is managed externally
+    # EventBus and CallGraphManager work independently of web server lifecycle
 
     try:
         from ..benchmarks.trading_benchmarks.trading_benchmark import TradingBenchmark
@@ -1174,22 +1146,3 @@ async def run_trading_evolve(
         # Mark callgraph node as failed
         if callgraph:
             await callgraph.fail_agent("trading-evolve", str(e))
-
-    finally:
-        # Keep web server running if it was started
-        if web_server_task:
-            print(f"\n🌐 Web server still running at http://localhost:8080")
-            print(f"📊 View results in the 'Evolution Cells' tab")
-            print(f"⌨️  Press Ctrl+C to stop the server and exit")
-
-            try:
-                # Wait indefinitely until user presses Ctrl+C
-                await web_server_task
-            except (KeyboardInterrupt, asyncio.CancelledError):
-                print(f"\n🌐 Shutting down web visualization server...")
-                web_server_task.cancel()
-                try:
-                    await web_server_task
-                except asyncio.CancelledError:
-                    pass
-                print(f"✓ Web server shutdown complete")
