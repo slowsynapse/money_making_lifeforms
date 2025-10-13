@@ -123,24 +123,33 @@ DSL Syntax Available:
 
 IMPORTANT: Multi-rule strategies use NEWLINES to separate rules. Do NOT use "ELSE IF" - it's not valid syntax.
 
-CRITICAL Trading Activity Rules:
+CRITICAL Trading Activity Rules (MANDATORY):
 - Parent strategy generated {total_trades} trades across all timeframes
-- Mutations MUST generate trades to be tested effectively
-- Avoid strategies where ALL conditions lead to HOLD - this kills trading
-- If you add HOLD actions, ensure at least one branch actively BUYs or SELLs
 - Zero-trade strategies get penalized $-45 for inactivity
-- Aim to maintain or improve trading activity level
+- Your mutation MUST generate trades or it will FAIL
 
-Example strategies:
-- "IF DELTA(0) > DELTA(20) THEN BUY ELSE SELL"  (simple momentum)
-- "IF GAMMA(50) * 1.02 < DELTA(0) THEN BUY ELSE HOLD"  (support breakout)
-- "IF DELTA(0) > DELTA(20) AND EPSILON() > 1000 THEN BUY ELSE SELL"  (momentum with volume)
-- "IF DELTA(0) < GAMMA(50) OR DELTA(0) > BETA(50) THEN SELL ELSE BUY"  (reversal at extremes)
-- "IF NOT DELTA() < DELTA(20) THEN BUY ELSE HOLD"  (negation for clarity)
+⚠️  FORBIDDEN PATTERNS (These result in 0 trades):
+❌ BAD: "IF A THEN X ELSE HOLD\\nIF B THEN Y ELSE HOLD"  (both can HOLD = 0 trades)
+❌ BAD: "IF A AND B THEN BUY ELSE HOLD"  (when A or B false = HOLD = may never trade)
+❌ BAD: Multiple rules all ending in "ELSE HOLD"  (creates dead zones with no trading)
 
-Multi-rule examples (newline-separated):
-- "IF DELTA(0) > DELTA(20) THEN BUY ELSE HOLD\\nIF EPSILON() > 1000 THEN SELL ELSE HOLD"  (two rules)
-- "IF GAMMA(14) >= BETA(20) THEN BUY ELSE HOLD\\nIF DELTA(0) < GAMMA(50) THEN SELL ELSE HOLD"  (momentum + support)
+✅ REQUIRED PATTERNS (These guarantee trades):
+✓ GOOD: "IF A THEN BUY ELSE SELL"  (always trades - BUY or SELL)
+✓ GOOD: "IF A THEN X ELSE Y\\nIF B THEN SELL ELSE BUY"  (2nd rule guarantees trade)
+✓ GOOD: Single rule with BUY/SELL in both branches (never HOLD)
+
+TRADING ACTIVITY REQUIREMENT:
+- At least ONE rule must have BUY or SELL (NOT HOLD) in BOTH branches
+- OR use only a single rule with "THEN BUY ELSE SELL" (or SELL ELSE BUY)
+- This ensures the strategy ALWAYS generates trades
+
+Example GOOD strategies (guaranteed to trade):
+- "IF DELTA(0) > DELTA(20) THEN BUY ELSE SELL"  (always trades)
+- "IF DELTA(0) > DELTA(20) AND EPSILON() > 1000 THEN BUY ELSE SELL"  (always trades)
+- "IF DELTA(0) < GAMMA(50) OR DELTA(0) > BETA(50) THEN SELL ELSE BUY"  (always trades)
+
+Example CONDITIONAL multi-rule (if you must use HOLD):
+- "IF DELTA(0) > DELTA(20) THEN BUY ELSE SELL\\nIF EPSILON() > 1000 THEN SELL ELSE HOLD"  (1st rule guarantees trade)
 
 Propose a mutation that:
 1. Is syntactically valid DSL (use \\n for multiple rules, NOT "ELSE IF")
